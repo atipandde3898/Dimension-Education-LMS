@@ -1,0 +1,6 @@
+{
+  "name": "CohortDesk — Candidate & Batch Management",
+  "description": "Candidate onboarding, batch scheduling, SME assignment, and placement tracking portal for training institutes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
