@@ -5,6 +5,7 @@ import {
   FileCheck2,
   Home,
   IndianRupee,
+  Lock,
   LogOut,
   Menu,
   MessageSquare,
@@ -26,6 +27,8 @@ interface CandidateLayoutProps {
   profile: Profile;
   candidateCode?: string | null;
   activeSection: CandidateSection;
+  avatarUrl?: string | null;
+  isTimetableLocked?: boolean;
   onNavigate: (section: CandidateSection) => void;
   onLogout: () => void;
   loggingOut?: boolean;
@@ -49,6 +52,8 @@ export function CandidateLayout({
   profile,
   candidateCode,
   activeSection,
+  avatarUrl,
+  isTimetableLocked = false,
   onNavigate,
   onLogout,
   loggingOut = false,
@@ -107,7 +112,12 @@ export function CandidateLayout({
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                <span>{item.label}</span>
+                <span className="flex-1 text-left">{item.label}</span>
+                {item.id === 'timetable' && isTimetableLocked && (
+                  <span title="Locked until profile photo and consent are completed">
+                    <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </span>
+                )}
               </button>
             );
           })}
@@ -118,6 +128,7 @@ export function CandidateLayout({
             fullName={profile.full_name || 'Candidate'}
             email={profile.email}
             roleLabel="Candidate"
+            avatarUrl={avatarUrl}
             onLogout={onLogout}
             loggingOut={loggingOut}
           />
@@ -168,7 +179,10 @@ export function CandidateLayout({
                     }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
-                    <span>{item.label}</span>
+                    <span className="flex-1 text-left">{item.label}</span>
+                    {item.id === 'timetable' && isTimetableLocked && (
+                      <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    )}
                   </button>
                 );
               })}
@@ -179,6 +193,7 @@ export function CandidateLayout({
                 fullName={profile.full_name || 'Candidate'}
                 email={profile.email}
                 roleLabel="Candidate"
+                avatarUrl={avatarUrl}
                 onLogout={onLogout}
                 loggingOut={loggingOut}
               />

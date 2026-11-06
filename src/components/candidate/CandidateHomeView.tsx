@@ -3,6 +3,7 @@ import type {
   CandidateDocument,
   CandidateOverview,
   InstallmentStatus,
+  OnboardingStatus,
   Payment,
 } from '../../types/database';
 import {
@@ -19,6 +20,7 @@ interface CandidateHomeViewProps {
   documents: CandidateDocument[];
   installments: InstallmentStatus[];
   payments?: Payment[];
+  onboardingStatus?: OnboardingStatus | null;
   onGoToOnboarding: () => void;
   onGoToFees: () => void;
 }
@@ -28,10 +30,10 @@ export function CandidateHomeView({
   documents,
   installments,
   payments = [],
+  onboardingStatus,
   onGoToOnboarding,
   onGoToFees,
 }: CandidateHomeViewProps) {
-  const progress = computeOnboardingProgress(documents);
   const pendingFees = Number(overview.pending ?? 0);
   const unpaidInstallments = installments.filter((i) => i.state !== 'paid');
   const allPaid = installments.length > 0 && unpaidInstallments.length === 0;
@@ -43,62 +45,168 @@ export function CandidateHomeView({
     (p) => p.status === 'pending',
   ).length;
 
+  const docMap = new Map<string, CandidateDocument>();
+  for (const d of documents) {
+    docMap.set(d.doc_type, d);
+  }
+
+  const getDocStatus = (docType: string): string => {
+    const doc = docMap.get(docType);
+    if (doc?.status === 'approved') return 'Approved';
+    if (doc?.status === 'pending') return 'Pending';
+    if (doc?.status === 'rejected') return 'Rejected';
+    if (docType === 'profile_photo' && onboardingStatus?.photo_status) {
+      const ps = String(onboardingStatus.photo_status).toLowerCase();
+      if (ps === 'approved') return 'Approved';
+      if (ps === 'pending') return 'Pending';
+      if (ps === 'rejected') return 'Rejected';
+    }
+    return 'Missing';
+  };
+
+  const photoStatus = getDocStatus('profile_photo');
+  const panStatus = getDocStatus('pan');
+  const photoIdStatus = getDocStatus('photo_id');
+  const enrollmentStatus = getDocStatus('enrollment_form');
+
+  const consentsAccepted = Number(onboardingStatus?.consents_accepted ?? 0);
+  const consentsRequired = Number(onboardingStatus?.consents_required ?? 0);
+  const consentAccepted =
+    consentsRequired > 0 && consentsAccepted >= consentsRequired;
+  const consentStatus = consentAccepted ? 'Accepted' : 'Pending';
+
+  const isOnboardingComplete = Boolean(onboardingStatus?.onboarding_complete);
+
+  const getBadgeStyle = (status: string) => {
+    switch (status) {
+      case 'Approved':
+      case 'Accepted':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'Pending':
+        return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'Rejected':
+        return 'bg-red-50 text-red-700 border-red-200';
+      default:
+        return 'bg-slate-100 text-slate-600 border-slate-200';
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Onboarding Status Banner */}
-      {progress.isComplete ? (
-        <div
-          role="status"
-          className="p-5 bg-emerald-50/80 border border-emerald-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-        >
+      {/* Onboarding Status Checklist Card */}
+      <section
+        role="status"
+        aria-label="Onboarding verification checklist"
+        className={`p-6 border rounded-xl space-y-4 shadow-xs ${
+          isOnboardingComplete
+            ? 'bg-emerald-50/70 border-emerald-200'
+            : 'bg-white border-slate-200'
+        }`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
           <div className="flex items-start gap-3">
-            <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+            {isOnboardingComplete ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+            ) : (
+              <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            )}
             <div>
-              <h2 className="text-sm font-semibold text-emerald-950">
-                Onboarding complete
+              <h2
+                className={`text-base font-semibold ${
+                  isOnboardingComplete
+                    ? 'text-emerald-950 font-bold'
+                    : 'text-slate-900'
+                }`}
+              >
+                {isOnboardingComplete
+                  ? 'Onboarding complete'
+                  : 'Onboarding incomplete'}
               </h2>
-              <p className="mt-0.5 text-xs text-emerald-800">
-                All 3 verification documents have been approved by the institute
-                administration.
+              <p
+                className={`mt-0.5 text-xs ${
+                  isOnboardingComplete
+                    ? 'text-emerald-800'
+                    : 'text-slate-500'
+                }`}
+              >
+                {isOnboardingComplete
+                  ? 'All 4 required documents and institutional consent have been completed and approved.'
+                  : 'Please complete all required documents and consent agreements to finish onboarding.'}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onGoToOnboarding}
-            className="px-3.5 py-2 text-xs font-medium text-emerald-900 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-100/60 transition-colors self-start sm:self-center whitespace-nowrap shrink-0"
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-lg transition-colors self-start sm:self-center whitespace-nowrap shrink-0 shadow-xs ${
+              isOnboardingComplete
+                ? 'text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-100/60'
+                : 'text-white bg-blue-700 hover:bg-blue-800'
+            }`}
           >
-            View Documents
-          </button>
-        </div>
-      ) : (
-        <div
-          role="status"
-          className="p-5 bg-amber-50/80 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-        >
-          <div className="flex items-start gap-3">
-            <Clock className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-            <div>
-              <h2 className="text-sm font-semibold text-amber-950">
-                Onboarding incomplete
-              </h2>
-              <p className="mt-0.5 text-xs text-amber-900">
-                {progress.approvedCount} of {progress.totalCount} required
-                documents approved. Upload your PAN card, photo ID, and signed
-                enrollment form to complete onboarding.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onGoToOnboarding}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors self-start sm:self-center whitespace-nowrap shrink-0"
-          >
-            <span>Go to Onboarding</span>
+            <span>{isOnboardingComplete ? 'Review Documents' : 'Complete Onboarding'}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
-      )}
+
+        {/* 5-item Checklist */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-1">
+          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-slate-700">Profile photo</span>
+            <span
+              className={`px-2 py-0.5 text-[11px] font-semibold border rounded-md whitespace-nowrap ${getBadgeStyle(
+                photoStatus,
+              )}`}
+            >
+              {photoStatus}
+            </span>
+          </div>
+
+          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-slate-700">PAN card</span>
+            <span
+              className={`px-2 py-0.5 text-[11px] font-semibold border rounded-md whitespace-nowrap ${getBadgeStyle(
+                panStatus,
+              )}`}
+            >
+              {panStatus}
+            </span>
+          </div>
+
+          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-slate-700">Photo / ID proof</span>
+            <span
+              className={`px-2 py-0.5 text-[11px] font-semibold border rounded-md whitespace-nowrap ${getBadgeStyle(
+                photoIdStatus,
+              )}`}
+            >
+              {photoIdStatus}
+            </span>
+          </div>
+
+          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-slate-700">Enrollment form</span>
+            <span
+              className={`px-2 py-0.5 text-[11px] font-semibold border rounded-md whitespace-nowrap ${getBadgeStyle(
+                enrollmentStatus,
+              )}`}
+            >
+              {enrollmentStatus}
+            </span>
+          </div>
+
+          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-slate-700">Consent</span>
+            <span
+              className={`px-2 py-0.5 text-[11px] font-semibold border rounded-md whitespace-nowrap ${getBadgeStyle(
+                consentStatus,
+              )}`}
+            >
+              {consentStatus}
+            </span>
+          </div>
+        </div>
+      </section>
 
       {/* Candidate Overview Header & Cohort Assignment */}
       <section

@@ -10,11 +10,17 @@ import type {
   ClassSession,
   FeePlan,
   InstallmentStatus,
+  OnboardingStatus,
   Payment,
   Profile,
   TimetableSlot,
 } from '../../types/database';
-import { formatDbError, maskPan } from '../../utils/domain';
+import {
+  CANDIDATE_DOCS_BUCKET,
+  formatDbError,
+  isMandatoryOnboardingIncomplete,
+  maskPan,
+} from '../../utils/domain';
 import { EmptyState, ErrorState, TableSkeleton } from '../ui/States';
 import { CandidateFeesView } from './CandidateFeesView';
 import { CandidateHomeView } from './CandidateHomeView';
@@ -45,6 +51,11 @@ export function CandidatePortal({
   const [overview, setOverview] = useState<CandidateOverview | null>(null);
   const [documents, setDocuments] = useState<CandidateDocument[]>([]);
   const [maskedPan, setMaskedPan] = useState<string | null>(null);
+  const [onboardingStatus, setOnboardingStatus] =
+    useState<OnboardingStatus | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [hasCheckedMandatoryRedirect, setHasCheckedMandatoryRedirect] =
+    useState(false);
 
   // Fee & payment workspace state
   const [feePlan, setFeePlan] = useState<FeePlan | null>(null);
@@ -139,6 +150,14 @@ export function CandidatePortal({
             .order('session_date', { ascending: false })
         : Promise.resolve({ data: [], error: null });
 
+      const onboardingPromise = client
+        .from('v_onboarding_status')
+        .select(
+          'candidate_id, docs_approved, docs_required, photo_status, consents_required, consents_accepted, onboarding_complete',
+        )
+        .eq('candidate_id', cand.id)
+        .maybeSingle();
+
       const [
         ovRes,
         docsRes,
@@ -150,6 +169,7 @@ export function CandidatePortal({
         batchRes,
         slotsRes,
         sessionsRes,
+        onbRes,
       ] = await Promise.all([
         client
           .from('v_candidate_overview')
@@ -194,6 +214,7 @@ export function CandidatePortal({
         batchPromise,
         slotsPromise,
         sessionsPromise,
+        onboardingPromise,
       ]);
 
       // Note: fee_plans direct read is optional if RLS restricts candidates to v_candidate_fees
@@ -234,8 +255,12 @@ export function CandidatePortal({
         placement_member: null,
       };
 
+      const loadedDocs = (docsRes.data as CandidateDocument[]) ?? [];
+      const loadedOnboarding = (onbRes.data as OnboardingStatus | null) ?? null;
+
       setOverview((ovRes.data as CandidateOverview | null) ?? fallbackOverview);
-      setDocuments((docsRes.data as CandidateDocument[]) ?? []);
+      setDocuments(loadedDocs);
+      setOnboardingStatus(loadedOnboarding);
       setFeeSummary(
         (feeSummaryRes.data as CandidateFeesSummary | null) ?? null,
       );
@@ -250,18 +275,45 @@ export function CandidatePortal({
       );
       setBatchSessions((sessionsRes.data as ClassSession[]) ?? []);
 
+      // Signed URL for profile photo avatar
+      const photoDoc = loadedDocs.find((d) => d.doc_type === 'profile_photo');
+      if (photoDoc?.storage_path) {
+        const { data: signedData } = await client.storage
+          .from(CANDIDATE_DOCS_BUCKET)
+          .createSignedUrl(photoDoc.storage_path, 60);
+        setAvatarUrl(signedData?.signedUrl ?? null);
+      } else {
+        setAvatarUrl(null);
+      }
+
+      // Mandatory redirect rule: Until profile photo uploaded AND all required consents accepted,
+      // redirect to onboarding right after login.
+      const mandatoryIncomplete = isMandatoryOnboardingIncomplete(
+        loadedOnboarding,
+        loadedDocs,
+      );
+      if (mandatoryIncomplete && !hasCheckedMandatoryRedirect) {
+        setActiveSection('onboarding');
+        setHasCheckedMandatoryRedirect(true);
+      }
+
       const panRecord = panRes.data as CandidatePan | null;
       // Never store unmasked PAN in state
       setMaskedPan(maskPan(panRecord?.pan_number));
       setLoading(false);
       setRefreshing(false);
     },
-    [userId],
+    [userId, hasCheckedMandatoryRedirect],
   );
 
   useEffect(() => {
     void loadCandidateWorkspace(true);
   }, [loadCandidateWorkspace]);
+
+  const isTimetableLocked = isMandatoryOnboardingIncomplete(
+    onboardingStatus,
+    documents,
+  );
 
   return (
     <CandidateLayout
@@ -271,6 +323,8 @@ export function CandidatePortal({
       onNavigate={setActiveSection}
       onLogout={onLogout}
       loggingOut={loggingOut}
+      avatarUrl={avatarUrl}
+      isTimetableLocked={isTimetableLocked}
     >
       {loading ? (
         <TableSkeleton rows={5} columns={4} />
@@ -293,6 +347,7 @@ export function CandidatePortal({
           documents={documents}
           installments={installments}
           payments={payments}
+          onboardingStatus={onboardingStatus}
           onGoToOnboarding={() => setActiveSection('onboarding')}
           onGoToFees={() => setActiveSection('fees')}
         />
@@ -318,6 +373,8 @@ export function CandidatePortal({
           batchCodeFallback={overview.batch_code}
           slots={timetableSlots}
           sessions={batchSessions}
+          isLocked={isTimetableLocked}
+          onGoToOnboarding={() => setActiveSection('onboarding')}
           onRefresh={() => loadCandidateWorkspace(false)}
           refreshing={refreshing}
         />
@@ -331,6 +388,7 @@ export function CandidatePortal({
           overview={overview}
           profile={profile}
           maskedPan={maskedPan}
+          avatarUrl={avatarUrl}
         />
       )}
     </CandidateLayout>

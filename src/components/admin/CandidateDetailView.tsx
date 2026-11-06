@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Check, Eye, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, Check, Eye, ShieldCheck, User, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type {
   Candidate,
   CandidateDocument,
   CandidateOverview,
   CandidatePan,
+  ConsentAcceptance,
+  ConsentClause,
   DocTypeValue,
   Profile,
 } from '../../types/database';
 import {
+  CANDIDATE_DOCS_BUCKET,
   DOC_TYPE_LABELS,
   REQUIRED_DOC_TYPES,
   buildDocumentApprovePayload,
@@ -77,6 +80,13 @@ export function CandidateDetailView({
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
 
+  // Profile photo & Consent state
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [consentClauses, setConsentClauses] = useState<ConsentClause[]>([]);
+  const [consentAcceptances, setConsentAcceptances] = useState<
+    ConsentAcceptance[]
+  >([]);
+
   // Status dropdown state
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [statusFeedback, setStatusFeedback] = useState<{
@@ -114,7 +124,15 @@ export function CandidateDetailView({
       if (showSkeleton) setLoading(true);
       setError(null);
 
-      const [ovRes, candRes, docsRes, panRes, counsRes] = await Promise.all([
+      const [
+        ovRes,
+        candRes,
+        docsRes,
+        panRes,
+        counsRes,
+        clausesRes,
+        acceptancesRes,
+      ] = await Promise.all([
         client
           .from('v_candidate_overview')
           .select(
@@ -145,6 +163,15 @@ export function CandidateDetailView({
           .select('id, full_name, email, phone, role, active')
           .eq('role', 'counsellor')
           .eq('active', true),
+        client
+          .from('consent_clauses')
+          .select('id, version, position, title, body, required, active')
+          .eq('active', true)
+          .order('position', { ascending: true }),
+        client
+          .from('consent_acceptances')
+          .select('id, candidate_id, clause_id, typed_name, accepted_at')
+          .eq('candidate_id', candidateId),
       ]);
 
       if (ovRes.error || !ovRes.data) {
@@ -154,14 +181,30 @@ export function CandidateDetailView({
       }
 
       const loadedOverview = ovRes.data as CandidateOverview;
+      const loadedDocs = (docsRes.data as CandidateDocument[] | null) ?? [];
       setOverview(loadedOverview);
       setCandidateRecord((candRes.data as Candidate | null) ?? null);
-      setDocuments((docsRes.data as CandidateDocument[] | null) ?? []);
+      setDocuments(loadedDocs);
       setActiveCounsellors((counsRes.data as Profile[]) ?? []);
+      setConsentClauses((clausesRes.data as ConsentClause[]) ?? []);
+      setConsentAcceptances(
+        (acceptancesRes.data as ConsentAcceptance[]) ?? [],
+      );
 
       // Mask PAN immediately so raw PAN never enters component state or DOM
       const panRow = (panRes.data as CandidatePan | null) ?? null;
       setMaskedPan(maskPan(panRow?.pan_number));
+
+      // Profile photo signed URL (60 seconds)
+      const photoDoc = loadedDocs.find((d) => d.doc_type === 'profile_photo');
+      if (photoDoc?.storage_path) {
+        const { data: signedData } = await client.storage
+          .from(CANDIDATE_DOCS_BUCKET)
+          .createSignedUrl(photoDoc.storage_path, 60);
+        setProfilePhotoUrl(signedData?.signedUrl ?? null);
+      } else {
+        setProfilePhotoUrl(null);
+      }
 
       onCandidateCodeLoaded?.(loadedOverview.candidate_code);
       setLoading(false);
@@ -359,41 +402,121 @@ export function CandidateDetailView({
 
       {/* Primary Profile Card */}
       <div className="p-6 bg-white border border-slate-200 rounded-xl space-y-6">
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 pb-5 border-b border-slate-100">
-          <div>
-            <div className="flex items-center gap-2.5 text-xs">
-              <span className="font-mono font-semibold text-blue-700 tabular-nums">
-                {overview.candidate_code}
-              </span>
-              <span className="text-slate-300" aria-hidden="true">
-                ·
-              </span>
-              <span
-                className={`font-medium capitalize ${
-                  STATUS_STYLES[currentStatus]
-                }`}
-              >
-                {currentStatus}
-              </span>
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 pb-5 border-b border-slate-100">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+            {/* Prominent Profile Photo */}
+            <div className="relative shrink-0">
+              {profilePhotoUrl ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const photoDoc = docMap.get('profile_photo');
+                    if (photoDoc) setPreviewDoc(photoDoc);
+                  }}
+                  title="Click to view full photo"
+                  className="group relative block focus:outline-none"
+                >
+                  <img
+                    src={profilePhotoUrl}
+                    alt={overview.full_name}
+                    className="w-20 h-20 rounded-xl object-cover border-2 border-slate-200 shadow-xs group-hover:opacity-90 transition-opacity"
+                  />
+                  <div className="absolute inset-0 rounded-xl bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                    <Eye className="w-4 h-4" />
+                  </div>
+                </button>
+              ) : (
+                <div className="w-20 h-20 rounded-xl bg-slate-100 border border-slate-200 flex flex-col items-center justify-center text-slate-400">
+                  <User className="w-8 h-8 text-slate-400" />
+                  <span className="text-[10px] mt-0.5 font-medium">No photo</span>
+                </div>
+              )}
             </div>
 
-            <h1 className="mt-1.5 text-2xl font-semibold text-slate-900 tracking-tight">
-              {overview.full_name}
-            </h1>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5 text-xs">
+                <span className="font-mono font-semibold text-blue-700 tabular-nums">
+                  {overview.candidate_code}
+                </span>
+                <span className="text-slate-300" aria-hidden="true">
+                  ·
+                </span>
+                <span
+                  className={`font-medium capitalize ${
+                    STATUS_STYLES[currentStatus]
+                  }`}
+                >
+                  {currentStatus}
+                </span>
+              </div>
 
-            <p className="mt-1 text-sm text-slate-500">
-              <span>{overview.email}</span>
-              {overview.phone && (
-                <>
-                  <span className="mx-2 text-slate-300" aria-hidden="true">
-                    ·
-                  </span>
-                  <span className="font-mono text-xs tabular-nums">
-                    {overview.phone}
-                  </span>
-                </>
-              )}
-            </p>
+              <h1 className="mt-1.5 text-2xl font-semibold text-slate-900 tracking-tight">
+                {overview.full_name}
+              </h1>
+
+              <p className="mt-1 text-sm text-slate-500">
+                <span>{overview.email}</span>
+                {overview.phone && (
+                  <>
+                    <span className="mx-2 text-slate-300" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="font-mono text-xs tabular-nums">
+                      {overview.phone}
+                    </span>
+                  </>
+                )}
+              </p>
+
+              {/* Photo Status & Prominent Top Actions */}
+              {(() => {
+                const photoDoc = docMap.get('profile_photo');
+                if (!photoDoc) {
+                  return (
+                    <div className="mt-2.5">
+                      <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium text-slate-600 bg-slate-100 rounded-md">
+                        Profile photo not uploaded
+                      </span>
+                    </div>
+                  );
+                }
+                const isApproving = approvingDocId === photoDoc.id;
+                return (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <DocumentStatusBadge status={photoDoc.status} />
+                    <button
+                      type="button"
+                      onClick={() => setPreviewDoc(photoDoc)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleApproveDoc(photoDoc)}
+                      disabled={isApproving || photoDoc.status === 'approved'}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 transition-colors disabled:opacity-40"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      {isApproving ? 'Approving…' : 'Approve'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRejectError(null);
+                        setRejectTarget(photoDoc);
+                      }}
+                      disabled={isApproving}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Reject
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 self-start">
@@ -680,6 +803,88 @@ export function CandidateDetailView({
             );
           })}
         </div>
+      </section>
+
+      {/* Consent Section */}
+      <section
+        aria-labelledby="candidate-consent-heading"
+        className="p-6 bg-white border border-slate-200 rounded-xl space-y-4"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div>
+            <h2
+              id="candidate-consent-heading"
+              className="text-base font-semibold text-slate-900"
+            >
+              Consent
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Legal agreements, terms, and candidate policy signatures.
+            </p>
+          </div>
+          <div className="text-xs font-medium text-slate-600">
+            {consentAcceptances.length} of {consentClauses.length} clauses accepted
+          </div>
+        </div>
+
+        {consentClauses.length === 0 ? (
+          <p className="text-xs text-slate-400 py-2">
+            No active consent clauses configured in the system.
+          </p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {consentClauses.map((clause) => {
+              const acceptance = consentAcceptances.find(
+                (a) => a.clause_id === clause.id,
+              );
+              return (
+                <div
+                  key={clause.id}
+                  className="py-3.5 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-900">
+                        {clause.title}
+                      </span>
+                      <span className="text-[11px] font-mono px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
+                        v{clause.version}
+                      </span>
+                      {clause.required && (
+                        <span className="text-[10px] uppercase font-semibold tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                          Required
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0">
+                    {acceptance ? (
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800">
+                        <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>
+                          Accepted on{' '}
+                          <span className="font-mono tabular-nums">
+                            {formatDateTime(acceptance.accepted_at)}
+                          </span>{' '}
+                          by{' '}
+                          <strong className="font-semibold">
+                            {acceptance.typed_name}
+                          </strong>
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                        <span>Not accepted yet</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Fees Section (Fee Plan, Installments Editor, Payments Review) */}

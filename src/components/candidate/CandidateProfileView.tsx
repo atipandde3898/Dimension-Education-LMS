@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { ShieldCheck, User } from 'lucide-react';
 import type { CandidateOverview, Profile } from '../../types/database';
+import { getInitials } from '../../utils/domain';
 
 interface CandidateProfileViewProps {
   overview: CandidateOverview;
   profile: Profile;
   maskedPan: string | null;
+  avatarUrl?: string | null;
 }
 
 const STATUS_TEXT_CLASS: Record<CandidateOverview['status'], string> = {
@@ -18,10 +21,13 @@ export function CandidateProfileView({
   overview,
   profile,
   maskedPan,
+  avatarUrl,
 }: CandidateProfileViewProps) {
+  const [imgFailed, setImgFailed] = useState(false);
   const name = overview.full_name || profile.full_name || 'Candidate';
   const email = overview.email || profile.email;
   const phone = overview.phone || profile.phone || '—';
+  const initials = getInitials(name);
 
   return (
     <div className="space-y-6">
@@ -37,10 +43,19 @@ export function CandidateProfileView({
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
         {/* Profile Header */}
         <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-700 shrink-0">
-              <User className="w-6 h-6" />
-            </div>
+          <div className="flex items-center gap-4">
+            {avatarUrl && !imgFailed ? (
+              <img
+                src={avatarUrl}
+                alt={name}
+                onError={() => setImgFailed(true)}
+                className="w-14 h-14 rounded-full object-cover border-2 border-blue-200 shadow-xs shrink-0"
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-full bg-blue-700 border-2 border-blue-200 flex items-center justify-center text-white font-semibold text-lg shrink-0 select-none shadow-xs">
+                {initials}
+              </div>
+            )}
             <div>
               <h2 className="text-lg font-semibold text-slate-900">{name}</h2>
               <p className="text-xs text-slate-500 font-mono tabular-nums">

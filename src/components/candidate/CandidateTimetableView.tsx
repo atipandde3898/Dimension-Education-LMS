@@ -1,4 +1,4 @@
-import { Calendar, Clock, RefreshCw } from 'lucide-react';
+import { ArrowRight, Calendar, Clock, Lock, RefreshCw } from 'lucide-react';
 import type {
   Batch,
   ClassSession,
@@ -21,6 +21,8 @@ interface CandidateTimetableViewProps {
   batchCodeFallback?: string | null;
   slots: TimetableSlot[];
   sessions: ClassSession[];
+  isLocked?: boolean;
+  onGoToOnboarding?: () => void;
   onRefresh: () => Promise<void> | void;
   refreshing?: boolean;
 }
@@ -30,9 +32,52 @@ export function CandidateTimetableView({
   batchCodeFallback,
   slots,
   sessions,
+  isLocked = false,
+  onGoToOnboarding,
   onRefresh,
   refreshing = false,
 }: CandidateTimetableViewProps) {
+  if (isLocked) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            Timetable
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Weekly live class schedule and completed session log for your batch.
+          </p>
+        </div>
+
+        <div className="p-8 bg-white border border-amber-200 rounded-xl text-center max-w-lg mx-auto space-y-4 my-8 shadow-xs">
+          <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-700 flex items-center justify-center mx-auto border border-amber-200">
+            <Lock className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-base font-semibold text-slate-900">
+              Timetable Access Locked
+            </h2>
+            <p className="text-sm text-slate-600">
+              Complete your profile photo and consent to continue
+            </p>
+          </div>
+          {onGoToOnboarding && (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={onGoToOnboarding}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors shadow-xs"
+              >
+                <span>Complete Onboarding</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const orderedSessions = sortSessionsNewestFirst(sessions);
 
   if (!batch) {

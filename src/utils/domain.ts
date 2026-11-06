@@ -761,12 +761,14 @@ export const SIGNED_URL_EXPIRY_SECONDS = 60;
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
 
 export const REQUIRED_DOC_TYPES: DocTypeValue[] = [
+  'profile_photo',
   'pan',
   'photo_id',
   'enrollment_form',
 ];
 
 export const DOC_TYPE_LABELS: Record<DocTypeValue, string> = {
+  profile_photo: 'Profile Photo',
   pan: 'PAN Card',
   photo_id: 'Photo / ID Proof',
   enrollment_form: 'Enrollment Form',
@@ -798,7 +800,7 @@ export function resolveDocumentExtension(
 }
 
 /**
- * Validates file type (pdf, jpg, png) and size (max 5 MB) and builds storage path:
+ * Validates file type (pdf, jpg, png; profile_photo: jpg, png only) and size (max 5 MB) and builds storage path:
  * `<candidate_id>/<doc_type>/<doc_type>.<ext>`
  */
 export function validateAndBuildDocUpload(
@@ -825,7 +827,16 @@ export function validateAndBuildDocUpload(
   if (!ext) {
     return {
       ok: false,
-      error: 'Unsupported file format. Choose a PDF, JPG, or PNG file.',
+      error:
+        docType === 'profile_photo'
+          ? 'Profile photo must be a JPG or PNG image.'
+          : 'Unsupported file format. Choose a PDF, JPG, or PNG file.',
+    };
+  }
+  if (docType === 'profile_photo' && ext !== 'jpg' && ext !== 'png') {
+    return {
+      ok: false,
+      error: 'Profile photo must be a JPG or PNG image (PDF is not accepted).',
     };
   }
   return {
@@ -900,7 +911,7 @@ export function buildDocumentRejectPayload(
 
 export function computeOnboardingProgress(
   docs: Array<Pick<CandidateDocument, 'doc_type' | 'status'>>,
-): { approvedCount: number; totalCount: 3; isComplete: boolean } {
+): { approvedCount: number; totalCount: 4; isComplete: boolean } {
   const approvedSet = new Set<DocTypeValue>();
   for (const doc of docs) {
     if (
@@ -913,8 +924,8 @@ export function computeOnboardingProgress(
   const approvedCount = approvedSet.size;
   return {
     approvedCount,
-    totalCount: 3,
-    isComplete: approvedCount === 3,
+    totalCount: 4,
+    isComplete: approvedCount === 4,
   };
 }
 
@@ -2469,6 +2480,112 @@ export function formatTicketDateTime(isoStr: string | null | undefined): string 
   const dayPeriod = (partMap.dayPeriod ?? 'AM').toUpperCase();
   return `${day}-${month}-${year}, ${hour}:${minute} ${dayPeriod}`;
 }
+
+export interface ConsentAcceptanceInputRow {
+  candidate_id: string;
+  clause_id: string;
+  typed_name: string;
+}
+
+/**
+ * Validates candidate signature and builds insert rows for consent_acceptances.
+ * Strictly never sends accepted_at (server trigger or defaults handle timestamp).
+ */
+export function buildConsentAcceptancePayloads(
+  candidateId: string,
+  clauseIds: string[],
+  typedName: string,
+):
+  | { ok: true; payloads: ConsentAcceptanceInputRow[] }
+  | { ok: false; error: string } {
+  const trimmedId = candidateId.trim();
+  const trimmedName = typedName.trim();
+  if (!trimmedId) {
+    return { ok: false, error: 'Candidate identifier is missing.' };
+  }
+  if (!clauseIds || clauseIds.length === 0) {
+    return { ok: false, error: 'No clauses to accept.' };
+  }
+  if (trimmedName.length < 2) {
+    return {
+      ok: false,
+      error: 'Please type your full name (at least 2 characters) as your signature.',
+    };
+  }
+
+  const payloads: ConsentAcceptanceInputRow[] = clauseIds.map((clauseId) => ({
+    candidate_id: trimmedId,
+    clause_id: clauseId,
+    typed_name: trimmedName,
+  }));
+
+  return { ok: true, payloads };
+}
+
+/**
+ * Extract 1-2 letter initials for user/candidate avatars.
+ */
+export function getInitials(name?: string | null): string {
+  if (!name) return 'CD';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'CD';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * Human label for v_onboarding_status.photo_status
+ */
+export function formatPhotoStatusLabel(
+  status: string | null | undefined,
+): string {
+  const normalized = (status ?? '').toLowerCase().trim();
+  if (normalized === 'approved') return 'Approved';
+  if (normalized === 'pending') return 'Pending';
+  if (normalized === 'rejected') return 'Rejected';
+  return 'Missing';
+}
+
+/**
+ * Human label for consent acceptance status
+ */
+export function formatConsentStatusLabel(
+  consentsAccepted: number | null | undefined,
+  consentsRequired: number | null | undefined,
+): string {
+  const accepted = Number(consentsAccepted ?? 0);
+  const required = Number(consentsRequired ?? 0);
+  if (required > 0 && accepted >= required) return 'Accepted';
+  return 'Pending';
+}
+
+/**
+ * Determines whether mandatory onboarding requirements are incomplete:
+ * Candidate must have uploaded a profile photo (any status) AND accepted all required consents.
+ */
+export function isMandatoryOnboardingIncomplete(
+  onboardingStatus: {
+    photo_status?: string | null;
+    consents_accepted?: number | null;
+    consents_required?: number | null;
+  } | null | undefined,
+  documents: CandidateDocument[] = [],
+): boolean {
+  const hasProfilePhotoDoc = documents.some(
+    (d) => d.doc_type === 'profile_photo',
+  );
+  const photoStatus = (onboardingStatus?.photo_status ?? '').toLowerCase();
+  const hasPhoto =
+    hasProfilePhotoDoc || (photoStatus !== '' && photoStatus !== 'missing');
+
+  const consentsAccepted = Number(onboardingStatus?.consents_accepted ?? 0);
+  const consentsRequired = Number(onboardingStatus?.consents_required ?? 0);
+  const hasConsents =
+    consentsRequired > 0 ? consentsAccepted >= consentsRequired : false;
+
+  return !hasPhoto || !hasConsents;
+}
+
 
 
 

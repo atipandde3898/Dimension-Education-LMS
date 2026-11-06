@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronUp, KeyRound, LogOut, User } from 'lucide-react';
+import { ChevronUp, KeyRound, LogOut } from 'lucide-react';
+import { getInitials } from '../../utils/domain';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
 interface AccountMenuProps {
   fullName?: string | null;
   email: string;
   roleLabel?: string;
+  avatarUrl?: string | null;
   onLogout: () => void;
   loggingOut?: boolean;
 }
@@ -14,12 +16,18 @@ export function AccountMenu({
   fullName,
   email,
   roleLabel,
+  avatarUrl,
   onLogout,
   loggingOut = false,
 }: AccountMenuProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [avatarUrl]);
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -38,6 +46,8 @@ export function AccountMenu({
     };
   }, [menuOpen]);
 
+  const initials = getInitials(fullName);
+
   return (
     <>
       <div ref={containerRef} className="relative w-full">
@@ -51,9 +61,18 @@ export function AccountMenu({
           className="w-full flex items-center justify-between gap-3 p-2.5 rounded-lg text-left hover:bg-slate-800/90 transition-colors group"
         >
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 shrink-0 group-hover:border-slate-600">
-              <User className="w-4 h-4" />
-            </div>
+            {avatarUrl && !imgFailed ? (
+              <img
+                src={avatarUrl}
+                alt={fullName || 'Avatar'}
+                onError={() => setImgFailed(true)}
+                className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-blue-900/60 border border-blue-700/60 flex items-center justify-center text-xs font-semibold text-blue-200 shrink-0 select-none">
+                {initials}
+              </div>
+            )}
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-white truncate leading-tight">
                 {fullName || 'User'}

@@ -110,6 +110,7 @@ export interface DashboardStats {
 }
 
 export enum DocumentType {
+  ProfilePhoto = 'profile_photo',
   Pan = 'pan',
   PhotoId = 'photo_id',
   EnrollmentForm = 'enrollment_form',
@@ -121,7 +122,11 @@ export enum DocumentStatus {
   Rejected = 'rejected',
 }
 
-export type DocTypeValue = 'pan' | 'photo_id' | 'enrollment_form';
+export type DocTypeValue =
+  | 'profile_photo'
+  | 'pan'
+  | 'photo_id'
+  | 'enrollment_form';
 export type DocStatusValue = 'pending' | 'approved' | 'rejected';
 
 export interface CandidatePan {
@@ -139,6 +144,40 @@ export interface CandidateDocument {
   reviewed_by: string | null;
   reviewed_at: string | null;
   uploaded_at: string | null;
+}
+
+export interface ConsentClause {
+  id: string;
+  version: number;
+  position: number;
+  title: string;
+  body: string;
+  required: boolean;
+  active: boolean;
+}
+
+export interface ConsentAcceptance {
+  id: string;
+  candidate_id: string;
+  clause_id: string;
+  typed_name: string;
+  accepted_at: string;
+}
+
+export type PhotoStatusValue =
+  | 'missing'
+  | 'pending'
+  | 'approved'
+  | 'rejected';
+
+export interface OnboardingStatus {
+  candidate_id: string;
+  docs_approved: number;
+  docs_required: number;
+  photo_status: PhotoStatusValue | string;
+  consents_required: number;
+  consents_accepted: number;
+  onboarding_complete: boolean;
 }
 
 export interface PendingDocumentWithCandidate extends CandidateDocument {

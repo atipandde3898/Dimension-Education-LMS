@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Search, UserCheck } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import type { CandidateOverview, SortDirection } from '../../types/database';
+import type {
+  CandidateOverview,
+  OnboardingStatus,
+  SortDirection,
+} from '../../types/database';
 import {
   filterAndSortRows,
+  formatConsentStatusLabel,
   formatDbError,
   formatInr,
+  formatPhotoStatusLabel,
 } from '../../utils/domain';
 import {
   EmptyState,
@@ -16,7 +22,7 @@ import {
 } from '../ui/States';
 import { CandidateFormModal } from './CandidateFormModal';
 
-type StatusFilter = 'all' | CandidateOverview['status'];
+type StatusFilter = 'all' | 'onboarding_incomplete' | CandidateOverview['status'];
 type SortField =
   | 'candidate_code'
   | 'full_name'
@@ -45,6 +51,9 @@ interface CandidatesViewProps {
 
 export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
   const [candidates, setCandidates] = useState<CandidateOverview[]>([]);
+  const [onboardingMap, setOnboardingMap] = useState<
+    Record<string, OnboardingStatus>
+  >({});
   const [orphanLogins, setOrphanLogins] = useState<OrphanLogin[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +89,7 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
     setLoading(true);
     setError(null);
 
-    const [candRes, profileRes, candProfileRes] = await Promise.all([
+    const [candRes, profileRes, candProfileRes, onbRes] = await Promise.all([
       supabase
         .from('v_candidate_overview')
         .select(
@@ -91,6 +100,11 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
         .select('id, full_name, email')
         .eq('role', 'candidate'),
       supabase.from('candidates').select('profile_id'),
+      supabase
+        .from('v_onboarding_status')
+        .select(
+          'candidate_id, docs_approved, docs_required, photo_status, consents_required, consents_accepted, onboarding_complete',
+        ),
     ]);
 
     if (candRes.error) {
@@ -100,6 +114,14 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
     }
 
     setCandidates((candRes.data as CandidateOverview[]) ?? []);
+
+    if (!onbRes.error && onbRes.data) {
+      const map: Record<string, OnboardingStatus> = {};
+      for (const item of onbRes.data as OnboardingStatus[]) {
+        map[item.candidate_id] = item;
+      }
+      setOnboardingMap(map);
+    }
 
     if (!profileRes.error && !candProfileRes.error) {
       const assignedIds = new Set(
@@ -124,7 +146,12 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
     const byStatus =
       statusFilter === 'all'
         ? candidates
-        : candidates.filter((c) => c.status === statusFilter);
+        : statusFilter === 'onboarding_incomplete'
+          ? candidates.filter((c) => {
+              const onb = onboardingMap[c.candidate_id];
+              return onb ? !onb.onboarding_complete : true;
+            })
+          : candidates.filter((c) => c.status === statusFilter);
 
     return filterAndSortRows(
       byStatus,
@@ -263,24 +290,25 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
         >
           {(
             [
-              'all',
-              'onboarding',
-              'active',
-              'completed',
-              'dropped',
-            ] as StatusFilter[]
-          ).map((st) => (
+              { value: 'all', label: 'All' },
+              { value: 'onboarding_incomplete', label: 'Onboarding incomplete' },
+              { value: 'onboarding', label: 'Onboarding' },
+              { value: 'active', label: 'Active' },
+              { value: 'completed', label: 'Completed' },
+              { value: 'dropped', label: 'Dropped' },
+            ] as Array<{ value: StatusFilter; label: string }>
+          ).map((opt) => (
             <button
-              key={st}
+              key={opt.value}
               type="button"
-              onClick={() => setStatusFilter(st)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md capitalize transition-colors whitespace-nowrap shrink-0 ${
-                statusFilter === st
+              onClick={() => setStatusFilter(opt.value)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                statusFilter === opt.value
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              {st}
+              {opt.label}
             </button>
           ))}
         </div>
@@ -299,7 +327,7 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
       </div>
 
       {loading ? (
-        <TableSkeleton rows={6} columns={7} />
+        <TableSkeleton rows={6} columns={9} />
       ) : error ? (
         <ErrorState
           title="Could not load candidate overview"
@@ -371,6 +399,12 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
                     direction={sort.dir}
                     onSort={handleSort}
                   />
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-600 text-left">
+                    Photo
+                  </th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-600 text-left">
+                    Consent
+                  </th>
                   <SortableHeader
                     label="Pending Fee"
                     field="pending"
@@ -394,6 +428,27 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
               <tbody className="divide-y divide-slate-100">
                 {visibleCandidates.map((cand) => {
                   const pendingAmount = Number(cand.pending ?? 0);
+                  const onb = onboardingMap[cand.candidate_id];
+                  const photoLabel = formatPhotoStatusLabel(onb?.photo_status);
+                  const consentLabel = formatConsentStatusLabel(
+                    onb?.consents_accepted,
+                    onb?.consents_required,
+                  );
+
+                  const photoBadgeClass =
+                    photoLabel === 'Approved'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : photoLabel === 'Pending'
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : photoLabel === 'Rejected'
+                          ? 'bg-red-50 text-red-700 border-red-200'
+                          : 'bg-slate-50 text-slate-500 border-slate-200';
+
+                  const consentBadgeClass =
+                    consentLabel === 'Accepted'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-slate-50 text-slate-600 border-slate-200';
+
                   return (
                     <tr
                       key={cand.candidate_id}
@@ -446,6 +501,20 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
                       </td>
                       <td className="px-4 py-3 text-slate-600">
                         {cand.counsellor || '—'}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 text-xs font-medium border rounded-md ${photoBadgeClass}`}
+                        >
+                          {photoLabel}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 text-xs font-medium border rounded-md ${consentBadgeClass}`}
+                        >
+                          {consentLabel}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-xs tabular-nums whitespace-nowrap">
                         <span

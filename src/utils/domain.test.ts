@@ -8,6 +8,7 @@ import {
   buildCandidateDocUpsertPayload,
   buildCandidatePaymentInsertPayload,
   buildCandidateUpdatePayload,
+  buildConsentAcceptancePayloads,
   buildDocumentApprovePayload,
   buildDocumentRejectPayload,
   buildFeePlanUpsertPayload,
@@ -23,6 +24,10 @@ import {
   computeCounsellorPortfolioMetrics,
   computeInstallmentMismatch,
   computeOnboardingProgress,
+  formatConsentStatusLabel,
+  formatPhotoStatusLabel,
+  getInitials,
+  isMandatoryOnboardingIncomplete,
   computeTotalSessionHours,
   filterAndSortRows,
   formatTicketDateTime,
@@ -375,21 +380,22 @@ test('document upload validation, storage path format, progress, and review payl
   assert.equal(upsertPayload.status, 'pending');
   assert.equal(upsertPayload.storage_path, 'cand-42/pan/pan.png');
 
-  // Progress bar math
+  // Progress bar math (4 required documents now)
   assert.deepEqual(
     computeOnboardingProgress([
       { doc_type: 'pan', status: 'approved' },
       { doc_type: 'photo_id', status: 'pending' },
     ]),
-    { approvedCount: 1, totalCount: 3, isComplete: false },
+    { approvedCount: 1, totalCount: 4, isComplete: false },
   );
   assert.deepEqual(
     computeOnboardingProgress([
+      { doc_type: 'profile_photo', status: 'approved' },
       { doc_type: 'pan', status: 'approved' },
       { doc_type: 'photo_id', status: 'approved' },
       { doc_type: 'enrollment_form', status: 'approved' },
     ]),
-    { approvedCount: 3, totalCount: 3, isComplete: true },
+    { approvedCount: 4, totalCount: 4, isComplete: true },
   );
 
   // Admin review payloads
@@ -1210,6 +1216,111 @@ test('formatTicketDateTime formats in Asia/Kolkata 12-hour AM/PM format and hand
   assert.equal(getTicketStatusLabel('resolved'), 'Resolved');
   assert.equal(getTicketStatusLabel('closed'), 'Closed');
 });
+
+test('profile photo upload validation enforces jpg/png only and exact bucket path', () => {
+  // Profile photo: accepts JPG
+  const jpgCheck = validateAndBuildDocUpload('cand-99', 'profile_photo', {
+    name: 'passport_photo.JPG',
+    size: 1024 * 500,
+    type: 'image/jpeg',
+  });
+  assert.equal(jpgCheck.ok, true);
+  if (jpgCheck.ok) {
+    assert.equal(jpgCheck.storagePath, 'cand-99/profile_photo/profile_photo.jpg');
+    assert.equal(jpgCheck.ext, 'jpg');
+  }
+
+  // Profile photo: accepts PNG
+  const pngCheck = validateAndBuildDocUpload('cand-99', 'profile_photo', {
+    name: 'photo.png',
+    size: 1024 * 200,
+    type: 'image/png',
+  });
+  assert.equal(pngCheck.ok, true);
+  if (pngCheck.ok) {
+    assert.equal(pngCheck.storagePath, 'cand-99/profile_photo/profile_photo.png');
+    assert.equal(pngCheck.ext, 'png');
+  }
+
+  // Profile photo: rejects PDF
+  const pdfCheck = validateAndBuildDocUpload('cand-99', 'profile_photo', {
+    name: 'photo.pdf',
+    size: 1024 * 300,
+    type: 'application/pdf',
+  });
+  assert.equal(pdfCheck.ok, false);
+});
+
+test('consent acceptance payloads building enforces signature rules and omits accepted_at', () => {
+  // Empty candidate ID
+  const noCand = buildConsentAcceptancePayloads('', ['clause-1'], 'Rohan Kulkarni');
+  assert.equal(noCand.ok, false);
+
+  // Short typed signature name
+  const shortSig = buildConsentAcceptancePayloads('cand-1', ['clause-1'], 'R');
+  assert.equal(shortSig.ok, false);
+
+  // Valid signature across multiple clauses
+  const valid = buildConsentAcceptancePayloads(
+    'cand-1',
+    ['clause-1', 'clause-2'],
+    ' Rohan Kulkarni ',
+  );
+  assert.equal(valid.ok, true);
+  if (valid.ok) {
+    assert.equal(valid.payloads.length, 2);
+    assert.deepEqual(valid.payloads[0], {
+      candidate_id: 'cand-1',
+      clause_id: 'clause-1',
+      typed_name: 'Rohan Kulkarni',
+    });
+    // CRITICAL: NEVER send accepted_at!
+    assert.equal('accepted_at' in valid.payloads[0], false);
+    assert.equal('accepted_at' in valid.payloads[1], false);
+  }
+});
+
+test('isMandatoryOnboardingIncomplete accurately checks profile photo and consent progress', () => {
+  // Missing photo and missing consent
+  assert.equal(
+    isMandatoryOnboardingIncomplete({
+      photo_status: 'missing',
+      consents_accepted: 0,
+      consents_required: 2,
+    }),
+    true,
+  );
+
+  // Photo uploaded (pending) but consent not accepted yet
+  assert.equal(
+    isMandatoryOnboardingIncomplete(
+      { photo_status: 'pending', consents_accepted: 1, consents_required: 2 },
+      [{ id: '1', candidate_id: 'c1', doc_type: 'profile_photo', storage_path: '', status: 'pending', review_note: null, reviewed_by: null, reviewed_at: null, uploaded_at: null }],
+    ),
+    true,
+  );
+
+  // Both photo uploaded (any status) and all consents accepted
+  assert.equal(
+    isMandatoryOnboardingIncomplete(
+      { photo_status: 'pending', consents_accepted: 2, consents_required: 2 },
+      [{ id: '1', candidate_id: 'c1', doc_type: 'profile_photo', storage_path: '', status: 'pending', review_note: null, reviewed_by: null, reviewed_at: null, uploaded_at: null }],
+    ),
+    false,
+  );
+
+  // Status helpers & initials
+  assert.equal(getInitials('Priya Menon'), 'PM');
+  assert.equal(getInitials('Aarav'), 'AA');
+  assert.equal(getInitials(''), 'CD');
+  assert.equal(formatPhotoStatusLabel('missing'), 'Missing');
+  assert.equal(formatPhotoStatusLabel('pending'), 'Pending');
+  assert.equal(formatPhotoStatusLabel('approved'), 'Approved');
+  assert.equal(formatPhotoStatusLabel('rejected'), 'Rejected');
+  assert.equal(formatConsentStatusLabel(2, 2), 'Accepted');
+  assert.equal(formatConsentStatusLabel(1, 2), 'Pending');
+});
+
 
 
 

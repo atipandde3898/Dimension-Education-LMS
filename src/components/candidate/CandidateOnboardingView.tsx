@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Eye, Lock, RefreshCw, Upload } from 'lucide-react';
+import { Eye, Lock, RefreshCw, Upload, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type { CandidateDocument, DocTypeValue } from '../../types/database';
 import {
@@ -17,6 +17,7 @@ import {
   DocumentPreviewModal,
   DocumentStatusBadge,
 } from '../ui/DocumentWidgets';
+import { CandidateConsentSection } from './CandidateConsentSection';
 
 interface CandidateOnboardingViewProps {
   candidateId: string;
@@ -26,6 +27,8 @@ interface CandidateOnboardingViewProps {
 }
 
 const CARD_DESCRIPTIONS: Record<DocTypeValue, string> = {
+  profile_photo:
+    'Recent passport-style photo, face clearly visible, plain background. (JPG or PNG only, max 5 MB).',
   pan: 'Upload a clear scan or photo of your Permanent Account Number (PAN) card.',
   photo_id:
     'Upload a valid government photo ID proof (Passport, Aadhaar, Voter ID, or Driving Licence).',
@@ -33,7 +36,12 @@ const CARD_DESCRIPTIONS: Record<DocTypeValue, string> = {
     'Upload your signed enrollment form (PDF, JPG, or PNG, max 5 MB).',
 };
 
-const DOC_ORDER: DocTypeValue[] = ['pan', 'photo_id', 'enrollment_form'];
+const DOC_ORDER: DocTypeValue[] = [
+  'profile_photo',
+  'pan',
+  'photo_id',
+  'enrollment_form',
+];
 
 export function CandidateOnboardingView({
   candidateId,
@@ -41,6 +49,12 @@ export function CandidateOnboardingView({
   documents,
   onRefresh,
 }: CandidateOnboardingViewProps) {
+  // Profile photo image preview before uploading
+  const [pendingPhotoFile, setPendingPhotoFile] = useState<File | null>(null);
+  const [pendingPhotoPreviewUrl, setPendingPhotoPreviewUrl] = useState<
+    string | null
+  >(null);
+
   // PAN form state — never pre-populated with raw PAN
   const [editingPan, setEditingPan] = useState(false);
   const [panInput, setPanInput] = useState('');
@@ -183,6 +197,11 @@ export function CandidateOnboardingView({
       return;
     }
 
+    if (docType === 'profile_photo') {
+      setPendingPhotoFile(null);
+      setPendingPhotoPreviewUrl(null);
+    }
+
     // Clear selected file and input on success
     setSelectedFiles((prev) => {
       const next = { ...prev };
@@ -203,6 +222,27 @@ export function CandidateOnboardingView({
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (docType === 'profile_photo') {
+      const validation = validateAndBuildDocUpload(
+        candidateId,
+        'profile_photo',
+        file,
+      );
+      if (!validation.ok) {
+        setUploadErrors((prev) => ({
+          ...prev,
+          profile_photo: validation.error,
+        }));
+        return;
+      }
+      setUploadErrors((prev) => ({ ...prev, profile_photo: null }));
+      setPendingPhotoFile(file);
+      const previewUrl = URL.createObjectURL(file);
+      setPendingPhotoPreviewUrl(previewUrl);
+      return;
+    }
+
     setSelectedFiles((prev) => ({ ...prev, [docType]: file }));
     void performUpload(docType, file);
   };
@@ -290,6 +330,57 @@ export function CandidateOnboardingView({
 
                 <DocumentStatusBadge status={status} />
               </div>
+
+              {/* Profile Photo Preview before uploading */}
+              {docType === 'profile_photo' && pendingPhotoPreviewUrl && (
+                <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                    <img
+                      src={pendingPhotoPreviewUrl}
+                      alt="Profile photo preview"
+                      className="w-24 h-24 rounded-lg object-cover border-2 border-white shadow-xs shrink-0"
+                    />
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold text-slate-900">
+                        Selected Photo Preview
+                      </p>
+                      <p className="text-xs text-slate-600">
+                        Recent passport-style photo, face clearly visible, plain background.
+                      </p>
+                      <p className="font-mono text-[11px] text-slate-500">
+                        {pendingPhotoFile?.name} ({(Number(pendingPhotoFile?.size ?? 0) / 1024).toFixed(0)} KB)
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={isUploading}
+                      onClick={() => {
+                        if (pendingPhotoFile) {
+                          void performUpload('profile_photo', pendingPhotoFile);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 rounded-lg transition-colors shadow-xs"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{isUploading ? 'Uploading photo…' : 'Upload Photo'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isUploading}
+                      onClick={() => {
+                        setPendingPhotoFile(null);
+                        setPendingPhotoPreviewUrl(null);
+                      }}
+                      className="px-3 py-2 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Rejected Review Note */}
               {isRejected && (
@@ -440,7 +531,11 @@ export function CandidateOnboardingView({
                         </span>
                       </span>
                     ) : (
-                      <span>Accepted formats: PDF, JPG, PNG · Max 5 MB</span>
+                      <span>
+                        {docType === 'profile_photo'
+                          ? 'Accepted formats: JPG, PNG · Max 5 MB'
+                          : 'Accepted formats: PDF, JPG, PNG · Max 5 MB'}
+                      </span>
                     )}
                   </div>
 
@@ -468,7 +563,11 @@ export function CandidateOnboardingView({
                       }}
                       id={`doc-upload-${docType}`}
                       type="file"
-                      accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                      accept={
+                        docType === 'profile_photo'
+                          ? '.jpg,.jpeg,.png,image/jpeg,image/png'
+                          : '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png'
+                      }
                       disabled={isApproved || isUploading}
                       onChange={(e) => handleFileSelected(docType, e)}
                       className="sr-only"
@@ -498,7 +597,9 @@ export function CandidateOnboardingView({
                             ? 'Uploading…'
                             : doc
                               ? 'Upload replacement'
-                              : `Choose ${label} file`}
+                              : docType === 'profile_photo'
+                                ? 'Choose photo'
+                                : `Choose ${label} file`}
                         </span>
                       </label>
                     )}
@@ -509,6 +610,12 @@ export function CandidateOnboardingView({
           );
         })}
       </div>
+
+      {/* Terms and consent Section */}
+      <CandidateConsentSection
+        candidateId={candidateId}
+        onConsentAccepted={onRefresh}
+      />
 
       <DocumentPreviewModal
         open={Boolean(previewDoc)}
