@@ -21,6 +21,8 @@ import { PaymentsView } from './components/admin/PaymentsView';
 import { PlacementTeamView } from './components/admin/PlacementTeamView';
 import { ReportsView } from './components/admin/ReportsView';
 import { StaffView } from './components/admin/StaffView';
+import { AdminTicketDetailView } from './components/admin/AdminTicketDetailView';
+import { AdminTicketsView } from './components/admin/AdminTicketsView';
 import { CandidatePortal } from './components/candidate/CandidatePortal';
 import { ComingSoonScreen } from './components/ComingSoonScreen';
 import { CounsellorPortal } from './components/counsellor/CounsellorPortal';
@@ -60,6 +62,24 @@ export default function App() {
   const [selectedCandidateCode, setSelectedCandidateCode] = useState<
     string | null
   >(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [selectedTicketCode, setSelectedTicketCode] = useState<string | null>(
+    null,
+  );
+  const [openTicketsCount, setOpenTicketsCount] = useState<number>(0);
+
+  const loadOpenTicketsCount = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('v_dashboard')
+      .select('open_tickets')
+      .maybeSingle();
+
+    if (!error && data) {
+      const count = Number((data as { open_tickets?: number }).open_tickets ?? 0);
+      setOpenTicketsCount(isNaN(count) ? 0 : count);
+    }
+  }, []);
 
   const loadUserProfile = useCallback(async (userId: string) => {
     if (!supabase) return;
@@ -78,9 +98,13 @@ export default function App() {
       return;
     }
 
-    setProfile((data as Profile | null) ?? null);
+    const userProfile = (data as Profile | null) ?? null;
+    setProfile(userProfile);
+    if (userProfile?.role === 'admin') {
+      void loadOpenTicketsCount();
+    }
     setProfileLoading(false);
-  }, []);
+  }, [loadOpenTicketsCount]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -127,21 +151,33 @@ export default function App() {
     setProfile(null);
     setSelectedBatchId(null);
     setSelectedCandidateId(null);
+    setSelectedTicketId(null);
+    setSelectedTicketCode(null);
     setActiveSection('dashboard');
   };
 
-  const handleNavigateSection = useCallback((section: AdminSection) => {
-    setActiveSection(section);
-    setSelectedBatchId(null);
-    setSelectedBatchCode(null);
-    setSelectedCandidateId(null);
-    setSelectedCandidateCode(null);
-  }, []);
+  const handleNavigateSection = useCallback(
+    (section: AdminSection) => {
+      setActiveSection(section);
+      setSelectedBatchId(null);
+      setSelectedBatchCode(null);
+      setSelectedCandidateId(null);
+      setSelectedCandidateCode(null);
+      setSelectedTicketId(null);
+      setSelectedTicketCode(null);
+      if (section === 'tickets' || section === 'dashboard') {
+        void loadOpenTicketsCount();
+      }
+    },
+    [loadOpenTicketsCount],
+  );
 
   const handleOpenBatch = useCallback((batchId: string) => {
     setActiveSection('batches');
     setSelectedCandidateId(null);
     setSelectedCandidateCode(null);
+    setSelectedTicketId(null);
+    setSelectedTicketCode(null);
     setSelectedBatchCode(null);
     setSelectedBatchId(batchId);
   }, []);
@@ -150,8 +186,20 @@ export default function App() {
     setActiveSection('candidates');
     setSelectedBatchId(null);
     setSelectedBatchCode(null);
+    setSelectedTicketId(null);
+    setSelectedTicketCode(null);
     setSelectedCandidateCode(null);
     setSelectedCandidateId(candidateId);
+  }, []);
+
+  const handleOpenTicket = useCallback((ticketId: string) => {
+    setActiveSection('tickets');
+    setSelectedBatchId(null);
+    setSelectedBatchCode(null);
+    setSelectedCandidateId(null);
+    setSelectedCandidateCode(null);
+    setSelectedTicketCode(null);
+    setSelectedTicketId(ticketId);
   }, []);
 
   const breadcrumbs = useMemo<BreadcrumbItem[]>(() => {
@@ -191,6 +239,22 @@ export default function App() {
     if (activeSection === 'reports') {
       return [{ label: 'Reports' }];
     }
+    if (activeSection === 'tickets') {
+      if (selectedTicketId) {
+        return [
+          {
+            label: 'Tickets',
+            onClick: () => {
+              setSelectedTicketId(null);
+              setSelectedTicketCode(null);
+              void loadOpenTicketsCount();
+            },
+          },
+          { label: selectedTicketCode ?? 'Ticket Details' },
+        ];
+      }
+      return [{ label: 'Tickets' }];
+    }
     if (selectedCandidateId) {
       return [
         {
@@ -210,6 +274,9 @@ export default function App() {
     selectedBatchCode,
     selectedCandidateId,
     selectedCandidateCode,
+    selectedTicketId,
+    selectedTicketCode,
+    loadOpenTicketsCount,
   ]);
 
   // 1. Setup check: VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY
@@ -345,6 +412,7 @@ export default function App() {
       activeSection={activeSection}
       onNavigate={handleNavigateSection}
       breadcrumbs={breadcrumbs}
+      openTicketsCount={openTicketsCount}
       onLogout={handleLogout}
       loggingOut={loggingOut}
     >
@@ -418,6 +486,27 @@ export default function App() {
           onSelectBatch={handleOpenBatch}
         />
       )}
+
+      {activeSection === 'tickets' &&
+        (selectedTicketId ? (
+          <AdminTicketDetailView
+            ticketId={selectedTicketId}
+            adminUserId={session.user.id}
+            onBack={() => {
+              setSelectedTicketId(null);
+              setSelectedTicketCode(null);
+              void loadOpenTicketsCount();
+            }}
+            onSelectCandidate={handleOpenCandidate}
+            onRefreshList={loadOpenTicketsCount}
+            onTicketCodeLoaded={setSelectedTicketCode}
+          />
+        ) : (
+          <AdminTicketsView
+            onSelectTicket={handleOpenTicket}
+            onSelectCandidate={handleOpenCandidate}
+          />
+        ))}
     </AdminLayout>
   );
 }

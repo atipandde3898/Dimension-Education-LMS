@@ -7,6 +7,7 @@ import {
   IndianRupee,
   LogOut,
   Menu,
+  MessageSquare,
   User,
   X,
 } from 'lucide-react';
@@ -18,6 +19,7 @@ export type CandidateSection =
   | 'onboarding'
   | 'fees'
   | 'timetable'
+  | 'tickets'
   | 'profile';
 
 interface CandidateLayoutProps {
@@ -39,6 +41,7 @@ const CANDIDATE_NAV: Array<{
   { id: 'onboarding', label: 'Onboarding', icon: FileCheck2 },
   { id: 'fees', label: 'Fees', icon: IndianRupee },
   { id: 'timetable', label: 'Timetable', icon: Calendar },
+  { id: 'tickets', label: 'Tickets', icon: MessageSquare },
   { id: 'profile', label: 'My profile', icon: User },
 ];
 

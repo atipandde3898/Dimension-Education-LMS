@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageSquare,
   Users,
   X,
 } from 'lucide-react';
@@ -26,7 +27,8 @@ export type AdminSection =
   | 'candidates'
   | 'payments'
   | 'document_review'
-  | 'reports';
+  | 'reports'
+  | 'tickets';
 
 export interface BreadcrumbItem {
   label: string;
@@ -39,6 +41,7 @@ interface AdminLayoutProps {
   onNavigate: (section: AdminSection) => void;
   breadcrumbs: BreadcrumbItem[];
   primaryAction?: React.ReactNode;
+  openTicketsCount?: number;
   onLogout: () => void;
   loggingOut?: boolean;
   children: React.ReactNode;
@@ -58,6 +61,7 @@ const NAV_ITEMS: Array<{
   { id: 'payments', label: 'Payments', icon: IndianRupee },
   { id: 'document_review', label: 'Document Review', icon: FileCheck },
   { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
+  { id: 'tickets', label: 'Tickets', icon: MessageSquare },
 ];
 
 export function AdminLayout({
@@ -66,6 +70,7 @@ export function AdminLayout({
   onNavigate,
   breadcrumbs,
   primaryAction,
+  openTicketsCount,
   onLogout,
   loggingOut = false,
   children,
@@ -100,14 +105,23 @@ export function AdminLayout({
                 type="button"
                 onClick={() => handleSelectNav(item.id)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
+                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
                   isActive
                     ? 'bg-blue-700 text-white'
                     : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
                 }`}
               >
-                <Icon className="w-4 h-4 shrink-0" />
-                <span>{item.label}</span>
+                <div className="flex items-center gap-3 min-w-0">
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </div>
+                {item.id === 'tickets' &&
+                  typeof openTicketsCount === 'number' &&
+                  openTicketsCount > 0 && (
+                    <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-500 text-white tabular-nums">
+                      {openTicketsCount}
+                    </span>
+                  )}
               </button>
             );
           })}
@@ -161,14 +175,23 @@ export function AdminLayout({
                     type="button"
                     onClick={() => handleSelectNav(item.id)}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
+                    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
                       isActive
                         ? 'bg-blue-700 text-white'
                         : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
                     }`}
                   >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span>{item.label}</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                    </div>
+                    {item.id === 'tickets' &&
+                      typeof openTicketsCount === 'number' &&
+                      openTicketsCount > 0 && (
+                        <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-500 text-white tabular-nums">
+                          {openTicketsCount}
+                        </span>
+                      )}
                   </button>
                 );
               })}

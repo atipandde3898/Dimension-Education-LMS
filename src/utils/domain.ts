@@ -9,6 +9,7 @@ import type {
   DashboardStats,
   DocTypeValue,
   FeePlan,
+  InstallmentStateValue,
   InstallmentStatus,
   Module,
   PendingDocumentWithCandidate,
@@ -18,6 +19,11 @@ import type {
   SortDirection,
   TimetableSlot,
   TimetableStatusValue,
+  Ticket,
+  TicketCategory,
+  TicketMessage,
+  TicketOverview,
+  TicketStatus,
 } from '../types/database';
 
 export interface EnvValidationResult {
@@ -582,6 +588,7 @@ export function normalizeDashboardStats(
     total_pending_fees: Number(row?.total_pending_fees ?? 0),
     overdue_installments: Number(row?.overdue_installments ?? 0),
     handed_over: Number(row?.handed_over ?? 0),
+    open_tickets: Number(row?.open_tickets ?? 0),
   };
 }
 
@@ -646,7 +653,7 @@ export function formatDate(dateStr: string | null | undefined): string {
   ];
   const monthIdx = Number(month) - 1;
   if (monthIdx < 0 || monthIdx > 11) return dateStr;
-  return `${day} ${months[monthIdx]} ${year}`;
+  return `${day}-${months[monthIdx]}-${year}`;
 }
 
 export type SortComparable = string | number | boolean | null | undefined;
@@ -698,26 +705,21 @@ export function formatDateTime(isoStr: string | null | undefined): string {
   if (!isoStr) return '—';
   const d = new Date(isoStr);
   if (Number.isNaN(d.getTime())) return formatDate(isoStr);
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = months[d.getMonth()];
-  const year = d.getFullYear();
-  const hours = String(d.getHours()).padStart(2, '0');
-  const mins = String(d.getMinutes()).padStart(2, '0');
-  return `${day} ${month} ${year}, ${hours}:${mins}`;
+  const formatter = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(d);
+  const partMap: Record<string, string> = {};
+  for (const part of parts) {
+    partMap[part.type] = part.value;
+  }
+  return `${partMap.day}-${partMap.month}-${partMap.year}, ${partMap.hour}:${partMap.minute}`;
 }
 
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
@@ -1114,21 +1116,64 @@ export function computeInstallmentMismatch(
 }
 
 /**
- * Finds the earliest installment whose state is not 'paid' (ordered by due_date asc, then seq asc).
+ * Finds the earliest installment whose state is not 'paid' and not 'submitted' (ordered by due_date asc, then seq asc).
  */
 export function findNextDueInstallment(
   installments: InstallmentStatus[],
 ): InstallmentStatus | null {
-  const unpaid = installments.filter((inst) => inst.state !== 'paid');
-  if (unpaid.length === 0) return null;
+  const eligible = installments.filter(
+    (inst) => inst.state !== 'paid' && inst.state !== 'submitted',
+  );
+  if (eligible.length === 0) return null;
 
-  const sorted = [...unpaid].sort((a, b) => {
+  const sorted = [...eligible].sort((a, b) => {
     const dateCmp = (a.due_date ?? '').localeCompare(b.due_date ?? '');
     if (dateCmp !== 0) return dateCmp;
     return Number(a.seq) - Number(b.seq);
   });
 
   return sorted[0] ?? null;
+}
+
+/**
+ * Computes human-friendly relative due text for an installment:
+ * e.g. "Due today", "Due in 3 days", "Overdue by 2 days", etc.
+ * Uses today's date in Asia/Kolkata timezone.
+ */
+export function getInstallmentDueRelativeText(
+  dueDate: string,
+  state?: InstallmentStateValue | null,
+  todayIso?: string,
+): string {
+  if (state === 'paid') return 'Paid';
+  if (state === 'submitted') return 'Payment submitted';
+  if (state === 'due_today') return 'Due today';
+
+  const refToday = todayIso || getIndiaTodayIso();
+  const dueMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(dueDate);
+  const todayMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(refToday);
+
+  if (!dueMatch || !todayMatch) {
+    if (state === 'overdue') return 'Overdue';
+    if (state === 'due_soon') return 'Due soon';
+    return 'Upcoming';
+  }
+
+  const [, dy, dm, dd] = dueMatch;
+  const [, ty, tm, td] = todayMatch;
+
+  const dueUtc = Date.UTC(Number(dy), Number(dm) - 1, Number(dd));
+  const todayUtc = Date.UTC(Number(ty), Number(tm) - 1, Number(td));
+  const diffDays = Math.round((dueUtc - todayUtc) / (24 * 60 * 60 * 1000));
+
+  if (diffDays === 0) {
+    return 'Due today';
+  }
+  if (diffDays > 0) {
+    return diffDays === 1 ? 'Due tomorrow' : `Due in ${diffDays} days`;
+  }
+  const absDays = Math.abs(diffDays);
+  return absDays === 1 ? 'Overdue by 1 day' : `Overdue by ${absDays} days`;
 }
 
 export function sanitizePaymentFilename(
@@ -1638,10 +1683,32 @@ export function formatDateDdMmmYyyy(
   return `${day}-${months[monthIdx]}-${year}`;
 }
 
+/**
+ * Returns today's date in India (Asia/Kolkata) formatted as YYYY-MM-DD.
+ */
+export function getIndiaTodayIso(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const year = parts.find((p) => p.type === 'year')?.value ?? '2026';
+  const month = parts.find((p) => p.type === 'month')?.value ?? '01';
+  const day = parts.find((p) => p.type === 'day')?.value ?? '01';
+  return `${year}-${month}-${day}`;
+}
+
 export function formatLocalIsoDate(now = new Date()): string {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const year = parts.find((p) => p.type === 'year')?.value ?? '2026';
+  const month = parts.find((p) => p.type === 'month')?.value ?? '01';
+  const day = parts.find((p) => p.type === 'day')?.value ?? '01';
   return `${year}-${month}-${day}`;
 }
 
@@ -2168,6 +2235,239 @@ export function validatePasswordRules(
     };
   }
   return { ok: true };
+}
+
+export const TICKET_CATEGORIES: ReadonlyArray<{
+  value: TicketCategory;
+  label: string;
+}> = [
+  { value: 'fees_payments', label: 'Fees & payments' },
+  { value: 'documents', label: 'Documents' },
+  { value: 'timetable_classes', label: 'Timetable & classes' },
+  { value: 'technical', label: 'Technical problem' },
+  { value: 'other', label: 'Other' },
+];
+
+export function getTicketCategoryLabel(
+  category: TicketCategory | string | null | undefined,
+): string {
+  const found = TICKET_CATEGORIES.find((c) => c.value === category);
+  return found ? found.label : (category ?? 'Other');
+}
+
+export function getTicketStatusLabel(
+  status: TicketStatus | string | null | undefined,
+): string {
+  switch (status) {
+    case 'open':
+      return 'Open';
+    case 'in_progress':
+      return 'In progress';
+    case 'resolved':
+      return 'Resolved';
+    case 'closed':
+      return 'Closed';
+    default:
+      return status ? String(status) : 'Open';
+  }
+}
+
+export interface TicketCreateInput {
+  id: string;
+  candidate_id: string;
+  category: TicketCategory;
+  subject: string;
+  description: string;
+  attachment_path?: string | null;
+}
+
+export interface TicketInsertPayload {
+  id: string;
+  candidate_id: string;
+  category: TicketCategory;
+  subject: string;
+  description: string;
+  attachment_path: string | null;
+}
+
+/**
+ * Validates and builds insert payload for a new ticket.
+ * Rules:
+ * - subject: 3 to 150 characters
+ * - description: 3 to 4000 characters
+ * - category: valid TicketCategory
+ * - NEVER sends status or ticket_code (database assigns default status and generates ticket_code).
+ */
+export function buildTicketCreatePayload(
+  input: TicketCreateInput,
+): { ok: true; payload: TicketInsertPayload } | { ok: false; error: string } {
+  const id = (input.id ?? '').trim();
+  const candidateId = (input.candidate_id ?? '').trim();
+  const subject = (input.subject ?? '').trim();
+  const description = (input.description ?? '').trim();
+  const category = input.category;
+
+  if (!id) {
+    return { ok: false, error: 'Ticket identifier is missing.' };
+  }
+  if (!candidateId) {
+    return { ok: false, error: 'Candidate identifier is missing.' };
+  }
+  if (
+    !['fees_payments', 'documents', 'timetable_classes', 'technical', 'other'].includes(
+      category,
+    )
+  ) {
+    return { ok: false, error: 'Please select a valid ticket category.' };
+  }
+  if (subject.length < 3 || subject.length > 150) {
+    return {
+      ok: false,
+      error: 'Subject must be between 3 and 150 characters.',
+    };
+  }
+  if (description.length < 3 || description.length > 4000) {
+    return {
+      ok: false,
+      error: 'Description must be between 3 and 4000 characters.',
+    };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      id,
+      candidate_id: candidateId,
+      category,
+      subject,
+      description,
+      attachment_path: (input.attachment_path ?? '').trim() || null,
+    },
+  };
+}
+
+export interface TicketMessageInput {
+  ticket_id: string;
+  body: string;
+  attachment_path?: string | null;
+}
+
+export interface TicketMessageInsertPayload {
+  ticket_id: string;
+  body: string;
+  attachment_path: string | null;
+}
+
+/**
+ * Validates and builds insert payload for a ticket reply.
+ * Never sends author_id or author_role (set by database trigger/session).
+ */
+export function buildTicketMessagePayload(
+  input: TicketMessageInput,
+): { ok: true; payload: TicketMessageInsertPayload } | { ok: false; error: string } {
+  const ticketId = (input.ticket_id ?? '').trim();
+  const body = (input.body ?? '').trim();
+
+  if (!ticketId) {
+    return { ok: false, error: 'Ticket identifier is missing.' };
+  }
+  if (!body) {
+    return { ok: false, error: 'Message body cannot be empty.' };
+  }
+  if (body.length > 4000) {
+    return { ok: false, error: 'Message cannot exceed 4000 characters.' };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      ticket_id: ticketId,
+      body,
+      attachment_path: (input.attachment_path ?? '').trim() || null,
+    },
+  };
+}
+
+/**
+ * Validates ticket attachment file (pdf, jpg, png, max 5 MB) and builds storage path:
+ * `<candidate_id>/tickets/<ticket_id>/<timestamp>-<filename>`
+ */
+export function validateAndBuildTicketAttachmentUpload(
+  candidateId: string,
+  ticketId: string,
+  file: { name: string; size: number; type?: string } | null | undefined,
+  timestampMs = Date.now(),
+):
+  | { ok: true; storagePath: string; ext: 'pdf' | 'jpg' | 'png' }
+  | { ok: false; error: string } {
+  const trimmedCandidateId = candidateId.trim();
+  const trimmedTicketId = ticketId.trim();
+  if (!trimmedCandidateId) {
+    return { ok: false, error: 'Candidate identifier is missing.' };
+  }
+  if (!trimmedTicketId) {
+    return { ok: false, error: 'Ticket identifier is missing.' };
+  }
+  if (!file) {
+    return {
+      ok: false,
+      error: 'Please choose an attachment file (PDF, JPG, or PNG).',
+    };
+  }
+  if (file.size <= 0) {
+    return { ok: false, error: 'The selected attachment file is empty.' };
+  }
+  if (file.size > MAX_DOCUMENT_BYTES) {
+    return {
+      ok: false,
+      error: 'File is larger than 5 MB. Please choose a file up to 5 MB.',
+    };
+  }
+  const ext = resolveDocumentExtension(file.name, file.type);
+  if (!ext) {
+    return {
+      ok: false,
+      error: 'Unsupported file format. Choose a PDF, JPG, or PNG file.',
+    };
+  }
+
+  const safeFilename = sanitizePaymentFilename(file.name, ext);
+  return {
+    ok: true,
+    ext,
+    storagePath: `${trimmedCandidateId}/tickets/${trimmedTicketId}/${timestampMs}-${safeFilename}`,
+  };
+}
+
+/**
+ * Formats timestamp as DD-MMM-YYYY with 12-hour time in Asia/Kolkata timezone.
+ * e.g. "06-Nov-2026, 03:45 PM"
+ */
+export function formatTicketDateTime(isoStr: string | null | undefined): string {
+  if (!isoStr) return '—';
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return formatDate(isoStr);
+  const formatter = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+  const parts = formatter.formatToParts(d);
+  const partMap: Record<string, string> = {};
+  for (const part of parts) {
+    partMap[part.type] = part.value;
+  }
+  const day = partMap.day ?? '01';
+  const month = partMap.month ?? 'Jan';
+  const year = partMap.year ?? '2026';
+  const hour = partMap.hour ?? '12';
+  const minute = partMap.minute ?? '00';
+  const dayPeriod = (partMap.dayPeriod ?? 'AM').toUpperCase();
+  return `${day}-${month}-${year}, ${hour}:${minute} ${dayPeriod}`;
 }
 
 

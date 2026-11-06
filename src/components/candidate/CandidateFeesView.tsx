@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Clock,
   Eye,
   Info,
   Plus,
@@ -21,6 +22,7 @@ import {
   formatDate,
   formatDbError,
   formatInr,
+  getIndiaTodayIso,
   hasCandidateFeePlan,
   validateAndBuildPaymentProofUpload,
 } from '../../utils/domain';
@@ -38,14 +40,6 @@ interface CandidateFeesViewProps {
   onRefresh: () => Promise<void>;
 }
 
-function getTodayDateString(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
 export function CandidateFeesView({
   candidateId,
   feePlan,
@@ -57,7 +51,7 @@ export function CandidateFeesView({
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
   const [selectedInstallmentId, setSelectedInstallmentId] = useState('');
   const [amountInput, setAmountInput] = useState('');
-  const [paidOnInput, setPaidOnInput] = useState(getTodayDateString);
+  const [paidOnInput, setPaidOnInput] = useState(getIndiaTodayIso);
   const [referenceInput, setReferenceInput] = useState('');
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [uploadedProofPath, setUploadedProofPath] = useState<string | null>(
@@ -94,6 +88,19 @@ export function CandidateFeesView({
     [installments],
   );
 
+  const payableInstallments = useMemo(
+    () =>
+      [...installments]
+        .filter((inst) => inst.state !== 'paid' && inst.state !== 'submitted')
+        .sort((a, b) => Number(a.seq) - Number(b.seq)),
+    [installments],
+  );
+
+  const pendingPaymentsCount = useMemo(
+    () => payments.filter((p) => p.status === 'pending').length,
+    [payments],
+  );
+
   const seqByInstallmentId = useMemo(() => {
     const map = new Map<string, number>();
     for (const inst of installments) {
@@ -118,20 +125,30 @@ export function CandidateFeesView({
     installment?: InstallmentStatus | null;
     defaultAmount?: number | null;
   }) => {
-    const inst = opts?.installment ?? null;
-    setSelectedInstallmentId(inst ? inst.id : '');
+    let targetInst = opts?.installment ?? null;
+    if (!targetInst && payableInstallments.length > 0) {
+      targetInst = payableInstallments[0];
+    }
+
+    setSelectedInstallmentId(targetInst ? targetInst.id : '');
+
     if (opts?.defaultAmount !== undefined && opts.defaultAmount !== null) {
       setAmountInput(opts.defaultAmount > 0 ? String(opts.defaultAmount) : '');
-    } else if (inst) {
+    } else if (targetInst) {
       const remaining = Math.max(
         0,
-        Math.round((Number(inst.amount) - Number(inst.paid || 0)) * 100) / 100,
+        Math.round(
+          (Number(targetInst.amount) -
+            Number(targetInst.paid || 0) -
+            Number(targetInst.pending_amount || 0)) *
+            100,
+        ) / 100,
       );
-      setAmountInput(remaining > 0 ? String(remaining) : String(inst.amount));
+      setAmountInput(remaining > 0 ? String(remaining) : String(targetInst.amount));
     } else {
       setAmountInput('');
     }
-    setPaidOnInput(getTodayDateString());
+    setPaidOnInput(getIndiaTodayIso());
     setReferenceInput('');
     setProofFile(null);
     setUploadedProofPath(null);
@@ -154,6 +171,13 @@ export function CandidateFeesView({
     );
     if (!fileValidation.ok) {
       setSubmitError(fileValidation.error);
+      setCanRetryUpload(false);
+      return;
+    }
+
+    // 1b. When candidate has installments, choosing an installment is required
+    if (installments.length > 0 && !selectedInstallmentId) {
+      setSubmitError('Please select an installment to submit payment.');
       setCanRetryUpload(false);
       return;
     }
@@ -394,9 +418,22 @@ export function CandidateFeesView({
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         <InstallmentStateBadge state={inst.state} />
+                        {inst.state !== 'paid' && Number(inst.pending_amount || 0) > 0 && (
+                          <p className="mt-1 text-xs font-medium text-blue-700">
+                            {formatInr(inst.pending_amount)} submitted, awaiting confirmation
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                        {inst.state !== 'paid' ? (
+                        {inst.state === 'paid' ? (
+                          <span className="text-xs text-slate-400">
+                            Settled
+                          </span>
+                        ) : inst.state === 'submitted' ? (
+                          <span className="text-xs font-medium text-blue-700">
+                            Awaiting confirmation
+                          </span>
+                        ) : (
                           <button
                             type="button"
                             onClick={() =>
@@ -407,10 +444,6 @@ export function CandidateFeesView({
                           >
                             Submit payment
                           </button>
-                        ) : (
-                          <span className="text-xs text-slate-400">
-                            Settled
-                          </span>
                         )}
                       </td>
                     </tr>
@@ -429,6 +462,12 @@ export function CandidateFeesView({
                     </span>
                     <InstallmentStateBadge state={inst.state} />
                   </div>
+
+                  {inst.state !== 'paid' && Number(inst.pending_amount || 0) > 0 && (
+                    <p className="text-xs font-medium text-blue-700">
+                      {formatInr(inst.pending_amount)} submitted, awaiting confirmation
+                    </p>
+                  )}
 
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
@@ -453,7 +492,13 @@ export function CandidateFeesView({
                       </span>
                     </span>
 
-                    {inst.state !== 'paid' && (
+                    {inst.state === 'paid' ? (
+                      <span className="text-xs text-slate-400">Settled</span>
+                    ) : inst.state === 'submitted' ? (
+                      <span className="text-xs font-medium text-blue-700">
+                        Awaiting confirmation
+                      </span>
+                    ) : (
                       <button
                         type="button"
                         onClick={() => openSubmitModal({ installment: inst })}
@@ -475,7 +520,7 @@ export function CandidateFeesView({
         aria-labelledby="candidate-my-payments-heading"
         className="space-y-3"
       >
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2
               id="candidate-my-payments-heading"
@@ -487,6 +532,14 @@ export function CandidateFeesView({
               Receipts you have submitted and their verification status.
             </p>
           </div>
+          {pendingPaymentsCount > 0 && (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 rounded-md whitespace-nowrap">
+              <Clock className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+              <span>
+                {pendingPaymentsCount} payment{pendingPaymentsCount === 1 ? '' : 's'} awaiting confirmation
+              </span>
+            </div>
+          )}
         </div>
 
         {sortedPayments.length === 0 ? (
@@ -631,24 +684,31 @@ export function CandidateFeesView({
               className="block text-sm font-medium text-slate-700 mb-1"
             >
               Installment{' '}
-              <span className="text-slate-400 font-normal">(optional)</span>
+              {installments.length > 0 ? (
+                <span className="text-red-600 font-normal">* (required)</span>
+              ) : (
+                <span className="text-slate-400 font-normal">(optional)</span>
+              )}
             </label>
             <select
               id="payment-installment-select"
               value={selectedInstallmentId}
+              required={installments.length > 0}
               disabled={submitting}
               onChange={(e) => {
                 const nextId = e.target.value;
                 setSelectedInstallmentId(nextId);
                 if (nextId) {
-                  const matched = sortedInstallments.find(
+                  const matched = installments.find(
                     (inst) => inst.id === nextId,
                   );
-                  if (matched && !amountInput) {
+                  if (matched) {
                     const rem = Math.max(
                       0,
                       Math.round(
-                        (Number(matched.amount) - Number(matched.paid || 0)) *
+                        (Number(matched.amount) -
+                          Number(matched.paid || 0) -
+                          Number(matched.pending_amount || 0)) *
                           100,
                       ) / 100,
                     );
@@ -656,17 +716,38 @@ export function CandidateFeesView({
                       rem > 0 ? String(rem) : String(matched.amount),
                     );
                   }
+                } else {
+                  setAmountInput('');
                 }
               }}
               className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-blue-600"
             >
-              <option value="">General payment (not linked to a specific installment)</option>
-              {sortedInstallments.map((inst) => (
-                <option key={inst.id} value={inst.id}>
-                  Installment #{inst.seq} · Due {formatDate(inst.due_date)} ·{' '}
-                  {formatInr(inst.amount)} ({inst.state})
-                </option>
-              ))}
+              {installments.length > 0 ? (
+                <>
+                  <option value="" disabled>
+                    Select an installment
+                  </option>
+                  {payableInstallments.map((inst) => {
+                    const remaining = Math.max(
+                      0,
+                      Math.round(
+                        (Number(inst.amount) -
+                          Number(inst.paid || 0) -
+                          Number(inst.pending_amount || 0)) *
+                          100,
+                      ) / 100,
+                    );
+                    return (
+                      <option key={inst.id} value={inst.id}>
+                        Installment #{inst.seq} · Due {formatDate(inst.due_date)} ·{' '}
+                        {formatInr(inst.amount)} (balance {formatInr(remaining)})
+                      </option>
+                    );
+                  })}
+                </>
+              ) : (
+                <option value="">General payment (not linked to an installment)</option>
+              )}
             </select>
           </div>
 

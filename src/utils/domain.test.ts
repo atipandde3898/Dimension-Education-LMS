@@ -17,15 +17,22 @@ import {
   buildPlacementReportRows,
   buildReportFilename,
   buildSessionPayload,
+  buildTicketCreatePayload,
+  buildTicketMessagePayload,
   buildTimetableSlotPayload,
   computeCounsellorPortfolioMetrics,
   computeInstallmentMismatch,
   computeOnboardingProgress,
   computeTotalSessionHours,
   filterAndSortRows,
+  formatTicketDateTime,
+  getTicketCategoryLabel,
+  getTicketStatusLabel,
+  validateAndBuildTicketAttachmentUpload,
   filterBatchesByModule,
   findNextDueInstallment,
   formatAmount,
+  formatDate,
   formatDateDdMmmYyyy,
   formatDbError,
   formatDurationMinutes,
@@ -33,6 +40,8 @@ import {
   formatInr,
   formatTime12h,
   formatTimeRange12h,
+  getIndiaTodayIso,
+  getInstallmentDueRelativeText,
   groupTimetableSlotsByDay,
   hasCandidateFeePlan,
   isCandidateBatchModuleLocked,
@@ -949,6 +958,259 @@ test('validatePasswordRules enforces length, letter, number, and matching confir
   assert.equal(validatePasswordRules('ValidPass1', 'ValidPass1').ok, true);
   assert.equal(validatePasswordRules('pass1234', 'pass1234').ok, true);
 });
+
+test('formatDate formats all dates as DD-MMM-YYYY strictly', () => {
+  assert.equal(formatDate('2026-11-06'), '06-Nov-2026');
+  assert.equal(formatDate('2026-04-15'), '15-Apr-2026');
+  assert.equal(formatDate('2026-01-01'), '01-Jan-2026');
+  assert.equal(formatDate(null), '—');
+});
+
+test('getIndiaTodayIso returns valid YYYY-MM-DD date string', () => {
+  const today = getIndiaTodayIso();
+  assert.match(today, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test('findNextDueInstallment ignores paid and submitted installments', () => {
+  const schedule: InstallmentStatus[] = [
+    {
+      id: 'i-1',
+      candidate_id: 'cand-1',
+      seq: 1,
+      due_date: '2026-10-01',
+      amount: 20000,
+      paid: 20000,
+      state: 'paid',
+      pending_amount: 0,
+    },
+    {
+      id: 'i-2',
+      candidate_id: 'cand-1',
+      seq: 2,
+      due_date: '2026-10-15',
+      amount: 20000,
+      paid: 0,
+      state: 'submitted',
+      pending_amount: 20000,
+    },
+    {
+      id: 'i-3',
+      candidate_id: 'cand-1',
+      seq: 3,
+      due_date: '2026-11-10',
+      amount: 20000,
+      paid: 0,
+      state: 'due_soon',
+      pending_amount: 0,
+    },
+    {
+      id: 'i-4',
+      candidate_id: 'cand-1',
+      seq: 4,
+      due_date: '2026-12-10',
+      amount: 20000,
+      paid: 0,
+      state: 'upcoming',
+      pending_amount: 0,
+    },
+  ];
+
+  // i-1 is paid, i-2 is submitted -> earliest non-paid, non-submitted is i-3
+  const next = findNextDueInstallment(schedule);
+  assert.equal(next?.id, 'i-3');
+  assert.equal(next?.state, 'due_soon');
+
+  // If only paid and submitted remain, returns null
+  assert.equal(findNextDueInstallment([schedule[0], schedule[1]]), null);
+});
+
+test('getInstallmentDueRelativeText returns exact expected relative phrases', () => {
+  const fakeToday = '2026-11-06';
+
+  assert.equal(getInstallmentDueRelativeText('2026-11-06', 'due_today', fakeToday), 'Due today');
+  assert.equal(getInstallmentDueRelativeText('2026-11-06', 'due_soon', fakeToday), 'Due today');
+  assert.equal(getInstallmentDueRelativeText('2026-11-09', 'due_soon', fakeToday), 'Due in 3 days');
+  assert.equal(getInstallmentDueRelativeText('2026-11-07', 'due_soon', fakeToday), 'Due tomorrow');
+  assert.equal(getInstallmentDueRelativeText('2026-11-04', 'overdue', fakeToday), 'Overdue by 2 days');
+  assert.equal(getInstallmentDueRelativeText('2026-11-05', 'overdue', fakeToday), 'Overdue by 1 day');
+  assert.equal(getInstallmentDueRelativeText('2026-11-01', 'paid', fakeToday), 'Paid');
+  assert.equal(getInstallmentDueRelativeText('2026-11-06', 'submitted', fakeToday), 'Payment submitted');
+});
+
+test('ticket payload building strictly validates inputs and never emits forbidden fields', () => {
+  // Missing ID or candidate ID
+  const missingId = buildTicketCreatePayload({
+    id: '',
+    candidate_id: 'cand-1',
+    category: 'fees_payments',
+    subject: 'Fee receipt clarification',
+    description: 'Please confirm whether installment 2 was received.',
+  });
+  assert.equal(missingId.ok, false);
+
+  const missingCandidate = buildTicketCreatePayload({
+    id: 't-1',
+    candidate_id: '',
+    category: 'fees_payments',
+    subject: 'Fee receipt clarification',
+    description: 'Please confirm whether installment 2 was received.',
+  });
+  assert.equal(missingCandidate.ok, false);
+
+  // Subject length rules (3 - 150)
+  const shortSubject = buildTicketCreatePayload({
+    id: 't-1',
+    candidate_id: 'cand-1',
+    category: 'fees_payments',
+    subject: 'Hi',
+    description: 'Valid description here',
+  });
+  assert.equal(shortSubject.ok, false);
+
+  const longSubject = buildTicketCreatePayload({
+    id: 't-1',
+    candidate_id: 'cand-1',
+    category: 'fees_payments',
+    subject: 'A'.repeat(151),
+    description: 'Valid description here',
+  });
+  assert.equal(longSubject.ok, false);
+
+  // Description length rules (3 - 4000)
+  const shortDesc = buildTicketCreatePayload({
+    id: 't-1',
+    candidate_id: 'cand-1',
+    category: 'fees_payments',
+    subject: 'Fee query',
+    description: 'Ok',
+  });
+  assert.equal(shortDesc.ok, false);
+
+  const longDesc = buildTicketCreatePayload({
+    id: 't-1',
+    candidate_id: 'cand-1',
+    category: 'fees_payments',
+    subject: 'Fee query',
+    description: 'X'.repeat(4001),
+  });
+  assert.equal(longDesc.ok, false);
+
+  // Valid ticket creation
+  const validTicket = buildTicketCreatePayload({
+    id: 't-100',
+    candidate_id: 'cand-42',
+    category: 'technical',
+    subject: ' Unable to access meeting link for Batch BAT-01 ',
+    description: ' The link throws a 404 error when clicking from the portal. ',
+    attachment_path: 'cand-42/tickets/t-100/1762162000000-screenshot.png',
+  });
+  assert.equal(validTicket.ok, true);
+  if (validTicket.ok) {
+    assert.equal(validTicket.payload.id, 't-100');
+    assert.equal(validTicket.payload.candidate_id, 'cand-42');
+    assert.equal(validTicket.payload.category, 'technical');
+    assert.equal(
+      validTicket.payload.subject,
+      'Unable to access meeting link for Batch BAT-01',
+    );
+    assert.equal(
+      validTicket.payload.description,
+      'The link throws a 404 error when clicking from the portal.',
+    );
+    assert.equal(
+      validTicket.payload.attachment_path,
+      'cand-42/tickets/t-100/1762162000000-screenshot.png',
+    );
+    // CRITICAL: NEVER send status or ticket_code to Supabase on creation!
+    assert.equal('status' in validTicket.payload, false);
+    assert.equal('ticket_code' in validTicket.payload, false);
+  }
+
+  // Reply message validation
+  const emptyReply = buildTicketMessagePayload({
+    ticket_id: 't-100',
+    body: '   ',
+  });
+  assert.equal(emptyReply.ok, false);
+
+  const validReply = buildTicketMessagePayload({
+    ticket_id: 't-100',
+    body: ' We checked the meeting link and updated permissions. ',
+    attachment_path: null,
+  });
+  assert.equal(validReply.ok, true);
+  if (validReply.ok) {
+    assert.equal(validReply.payload.ticket_id, 't-100');
+    assert.equal(
+      validReply.payload.body,
+      'We checked the meeting link and updated permissions.',
+    );
+    assert.equal(validReply.payload.attachment_path, null);
+    // CRITICAL: NEVER send author_id or author_role (set by server trigger)
+    assert.equal('author_id' in validReply.payload, false);
+    assert.equal('author_role' in validReply.payload, false);
+  }
+});
+
+test('ticket attachment path builder enforces bucket path format, max 5 MB, and allowed extensions', () => {
+  const upload = validateAndBuildTicketAttachmentUpload(
+    'cand-42',
+    'tick-999',
+    { name: 'Error Log #1.pdf', size: 1024 * 200, type: 'application/pdf' },
+    1762162000000,
+  );
+  assert.equal(upload.ok, true);
+  if (upload.ok) {
+    assert.equal(
+      upload.storagePath,
+      'cand-42/tickets/tick-999/1762162000000-Error_Log_1.pdf',
+    );
+    assert.equal(upload.ext, 'pdf');
+  }
+
+  const pngUpload = validateAndBuildTicketAttachmentUpload(
+    'cand-42',
+    'tick-999',
+    { name: 'screen.png', size: 1024 * 50, type: 'image/png' },
+    1762162000000,
+  );
+  assert.equal(pngUpload.ok, true);
+
+  // Oversize > 5 MB
+  const oversize = validateAndBuildTicketAttachmentUpload(
+    'cand-42',
+    'tick-999',
+    { name: 'huge.png', size: 5 * 1024 * 1024 + 10, type: 'image/png' },
+  );
+  assert.equal(oversize.ok, false);
+
+  // Unsupported extension
+  const badExt = validateAndBuildTicketAttachmentUpload(
+    'cand-42',
+    'tick-999',
+    { name: 'file.exe', size: 1024, type: 'application/octet-stream' },
+  );
+  assert.equal(badExt.ok, false);
+});
+
+test('formatTicketDateTime formats in Asia/Kolkata 12-hour AM/PM format and handles nulls', () => {
+  assert.equal(formatTicketDateTime(null), '—');
+  assert.equal(formatTicketDateTime(undefined), '—');
+
+  // Specific ISO timestamp formatted in Kolkata (UTC+5:30)
+  // 2026-11-06T10:00:00.000Z is 15:30 IST (03:30 PM)
+  const formatted = formatTicketDateTime('2026-11-06T10:00:00.000Z');
+  assert.match(formatted, /^06-Nov-2026, 0?3:30 PM$/);
+
+  // Labels
+  assert.equal(getTicketCategoryLabel('fees_payments'), 'Fees & payments');
+  assert.equal(getTicketCategoryLabel('technical'), 'Technical problem');
+  assert.equal(getTicketStatusLabel('open'), 'Open');
+  assert.equal(getTicketStatusLabel('in_progress'), 'In progress');
+  assert.equal(getTicketStatusLabel('resolved'), 'Resolved');
+  assert.equal(getTicketStatusLabel('closed'), 'Closed');
+});
+
 
 
 

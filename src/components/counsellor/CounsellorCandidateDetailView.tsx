@@ -67,7 +67,7 @@ export function CounsellorCandidateDetailView({
         .eq('candidate_id', candidateId),
       client
         .from('v_installment_status')
-        .select('id, candidate_id, seq, due_date, amount, paid, state')
+        .select('id, candidate_id, seq, due_date, amount, paid, state, pending_amount')
         .eq('candidate_id', candidateId)
         .order('seq', { ascending: true }),
       client
@@ -358,6 +358,11 @@ export function CounsellorCandidateDetailView({
                         </td>
                         <td className="px-4 py-2.5 whitespace-nowrap">
                           <InstallmentStateBadge state={inst.state} />
+                          {inst.state !== 'paid' && Number(inst.pending_amount || 0) > 0 && (
+                            <p className="mt-1 text-xs font-medium text-blue-700">
+                              {formatInr(inst.pending_amount)} submitted, awaiting confirmation
+                            </p>
+                          )}
                         </td>
                       </tr>
                     ))}

@@ -28,7 +28,7 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
     const { data, error: queryError } = await supabase
       .from('v_dashboard')
       .select(
-        'total_candidates, onboarding, active, total_pending_fees, overdue_installments, handed_over',
+        'total_candidates, onboarding, active, total_pending_fees, overdue_installments, handed_over, open_tickets',
       )
       .maybeSingle();
 
@@ -192,6 +192,32 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
           <p className="mt-2 text-xs text-slate-500">
             Transitioned to placement team
           </p>
+        </div>
+
+        <div className="p-6 bg-white border border-slate-200 rounded-xl flex flex-col justify-between">
+          <div>
+            <p className="text-xs font-medium text-slate-500">Open Tickets</p>
+            <p
+              className={`mt-2 font-mono text-3xl font-semibold tabular-nums ${
+                metrics.open_tickets > 0 ? 'text-blue-700' : 'text-slate-900'
+              }`}
+            >
+              {formatAmount(metrics.open_tickets)}
+            </p>
+            <p className="mt-2 text-xs text-slate-500">
+              {metrics.open_tickets > 0
+                ? 'Candidate inquiries awaiting resolution'
+                : 'All candidate tickets resolved'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('tickets')}
+            className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors w-full"
+          >
+            <span>Manage tickets</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </section>
 

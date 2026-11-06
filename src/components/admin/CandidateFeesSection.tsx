@@ -126,7 +126,7 @@ export function CandidateFeesSection({
             .order('seq', { ascending: true }),
           client
             .from('v_installment_status')
-            .select('id, candidate_id, seq, due_date, amount, paid, state')
+            .select('id, candidate_id, seq, due_date, amount, paid, state, pending_amount')
             .eq('candidate_id', candidateId)
             .order('seq', { ascending: true }),
           client
@@ -790,6 +790,11 @@ export function CandidateFeesSection({
                           <InstallmentStateBadge
                             state={st?.state ?? 'upcoming'}
                           />
+                          {st && st.state !== 'paid' && Number(st.pending_amount || 0) > 0 && (
+                            <p className="mt-1 text-xs font-medium text-blue-700">
+                              {formatInr(st.pending_amount)} submitted, awaiting confirmation
+                            </p>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           <div className="inline-flex items-center justify-end gap-3">
@@ -832,6 +837,11 @@ export function CandidateFeesSection({
                       </span>
                       <InstallmentStateBadge state={st?.state ?? 'upcoming'} />
                     </div>
+                    {st && st.state !== 'paid' && Number(st.pending_amount || 0) > 0 && (
+                      <p className="text-xs font-medium text-blue-700">
+                        {formatInr(st.pending_amount)} submitted, awaiting confirmation
+                      </p>
+                    )}
                     <div className="flex items-center justify-between text-xs text-slate-600">
                       <span>Due {formatDate(inst.due_date)}</span>
                       <span className="font-mono font-semibold text-slate-900 tabular-nums">

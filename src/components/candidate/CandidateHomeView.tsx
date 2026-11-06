@@ -3,12 +3,14 @@ import type {
   CandidateDocument,
   CandidateOverview,
   InstallmentStatus,
+  Payment,
 } from '../../types/database';
 import {
   computeOnboardingProgress,
   findNextDueInstallment,
   formatDate,
   formatInr,
+  getInstallmentDueRelativeText,
 } from '../../utils/domain';
 import { InstallmentStateBadge } from '../ui/FeeWidgets';
 
@@ -16,6 +18,7 @@ interface CandidateHomeViewProps {
   overview: CandidateOverview;
   documents: CandidateDocument[];
   installments: InstallmentStatus[];
+  payments?: Payment[];
   onGoToOnboarding: () => void;
   onGoToFees: () => void;
 }
@@ -24,12 +27,21 @@ export function CandidateHomeView({
   overview,
   documents,
   installments,
+  payments = [],
   onGoToOnboarding,
   onGoToFees,
 }: CandidateHomeViewProps) {
   const progress = computeOnboardingProgress(documents);
   const pendingFees = Number(overview.pending ?? 0);
+  const unpaidInstallments = installments.filter((i) => i.state !== 'paid');
+  const allPaid = installments.length > 0 && unpaidInstallments.length === 0;
+  const allUnpaidSubmitted =
+    unpaidInstallments.length > 0 &&
+    unpaidInstallments.every((i) => i.state === 'submitted');
   const nextDue = findNextDueInstallment(installments);
+  const pendingPaymentsCount = payments.filter(
+    (p) => p.status === 'pending',
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -155,13 +167,176 @@ export function CandidateHomeView({
 
       {/* Next Due Card + Fee Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
-        {/* Small "Next due" Card */}
-        <section
-          aria-labelledby="candidate-next-due-heading"
-          className="p-6 bg-white border border-slate-200 rounded-xl flex flex-col justify-between gap-5"
-        >
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
+        {/* Next due Card */}
+        {allUnpaidSubmitted ? (
+          <section
+            aria-labelledby="candidate-next-due-heading"
+            className="p-6 bg-blue-50/70 border border-blue-200 rounded-xl flex flex-col justify-between gap-5"
+          >
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CalendarClock className="w-4 h-4 text-blue-700 shrink-0" />
+                  <h2
+                    id="candidate-next-due-heading"
+                    className="text-sm font-semibold text-blue-950"
+                  >
+                    Next due
+                  </h2>
+                </div>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-blue-800 bg-blue-100/80 border border-blue-200 rounded-md whitespace-nowrap shrink-0">
+                  <Clock className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                  Awaiting confirmation
+                </span>
+              </div>
+
+              <div className="pt-1 space-y-1">
+                <p className="text-sm font-medium text-blue-950">
+                  Payment submitted. Awaiting confirmation.
+                </p>
+                <p className="text-xs text-blue-800">
+                  Your submitted installment payment is currently awaiting review
+                  and confirmation by the institute administration.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onGoToFees}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors self-start whitespace-nowrap"
+            >
+              <span>Go to Fees</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </section>
+        ) : allPaid ? (
+          <section
+            aria-labelledby="candidate-next-due-heading"
+            className="p-6 bg-emerald-50/60 border border-emerald-200 rounded-xl flex flex-col justify-between gap-5"
+          >
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <h2
+                    id="candidate-next-due-heading"
+                    className="text-sm font-semibold text-emerald-950"
+                  >
+                    Next due
+                  </h2>
+                </div>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-800 bg-emerald-100/80 border border-emerald-200 rounded-md whitespace-nowrap shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                  Paid
+                </span>
+              </div>
+
+              <div className="pt-1">
+                <p className="text-sm font-medium text-emerald-900">
+                  All installments are paid
+                </p>
+                <p className="mt-1 text-xs text-emerald-700">
+                  You have no pending fees or overdue installments.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onGoToFees}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 hover:text-emerald-950 transition-colors self-start whitespace-nowrap"
+            >
+              <span>View Payment History</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </section>
+        ) : nextDue ? (
+          <section
+            aria-labelledby="candidate-next-due-heading"
+            className={`p-6 rounded-xl flex flex-col justify-between gap-5 border ${
+              nextDue.state === 'overdue'
+                ? 'bg-red-50/50 border-red-200'
+                : nextDue.state === 'due_today'
+                ? 'bg-orange-50/50 border-orange-200'
+                : nextDue.state === 'due_soon'
+                ? 'bg-amber-50/50 border-amber-200'
+                : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CalendarClock
+                    className={`w-4 h-4 shrink-0 ${
+                      nextDue.state === 'overdue'
+                        ? 'text-red-700'
+                        : nextDue.state === 'due_today'
+                        ? 'text-orange-700'
+                        : nextDue.state === 'due_soon'
+                        ? 'text-amber-700'
+                        : 'text-slate-500'
+                    }`}
+                  />
+                  <h2
+                    id="candidate-next-due-heading"
+                    className="text-sm font-semibold text-slate-900"
+                  >
+                    Next due
+                  </h2>
+                </div>
+                <InstallmentStateBadge state={nextDue.state} />
+              </div>
+
+              <div className="pt-1 space-y-1.5">
+                <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                  <p className="font-mono text-2xl font-semibold text-slate-900 tabular-nums">
+                    {formatInr(nextDue.amount)}
+                  </p>
+                  <span
+                    className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                      nextDue.state === 'overdue'
+                        ? 'text-red-800 bg-red-100/90'
+                        : nextDue.state === 'due_today'
+                        ? 'text-orange-800 bg-orange-100/90'
+                        : nextDue.state === 'due_soon'
+                        ? 'text-amber-800 bg-amber-100/90'
+                        : 'text-slate-700 bg-slate-100'
+                    }`}
+                  >
+                    {getInstallmentDueRelativeText(nextDue.due_date, nextDue.state)}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Installment #{nextDue.seq} · Due{' '}
+                  <span className="font-mono font-medium text-slate-900 tabular-nums">
+                    {formatDate(nextDue.due_date)}
+                  </span>
+                </p>
+
+                {Number(nextDue.pending_amount || 0) > 0 && (
+                  <p className="text-xs font-medium text-blue-700 pt-0.5">
+                    {formatInr(nextDue.pending_amount)} submitted, awaiting confirmation
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onGoToFees}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors self-start whitespace-nowrap"
+            >
+              <span>Go to Fees</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </section>
+        ) : (
+          <section
+            aria-labelledby="candidate-next-due-heading"
+            className="p-6 bg-white border border-slate-200 rounded-xl flex flex-col justify-between gap-5"
+          >
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <CalendarClock className="w-4 h-4 text-slate-500 shrink-0" />
                 <h2
@@ -171,41 +346,21 @@ export function CandidateHomeView({
                   Next due
                 </h2>
               </div>
-              {nextDue && <InstallmentStateBadge state={nextDue.state} />}
-            </div>
-
-            {nextDue ? (
-              <div className="pt-1 space-y-1">
-                <p className="font-mono text-2xl font-semibold text-slate-900 tabular-nums">
-                  {formatInr(nextDue.amount)}
-                </p>
-                <p className="text-xs text-slate-600">
-                  Installment #{nextDue.seq} · Due{' '}
-                  <span className="font-mono font-medium text-slate-900 tabular-nums">
-                    {formatDate(nextDue.due_date)}
-                  </span>
-                </p>
-              </div>
-            ) : installments.length > 0 ? (
-              <p className="text-sm text-emerald-800 pt-1">
-                All scheduled installments are paid.
-              </p>
-            ) : (
               <p className="text-sm text-slate-500 pt-1">
                 No unpaid installments scheduled yet.
               </p>
-            )}
-          </div>
+            </div>
 
-          <button
-            type="button"
-            onClick={onGoToFees}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors self-start whitespace-nowrap"
-          >
-            <span>Go to Fees</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </section>
+            <button
+              type="button"
+              onClick={onGoToFees}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors self-start whitespace-nowrap"
+            >
+              <span>Go to Fees</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </section>
+        )}
 
         {/* Fee Summary */}
         <section
@@ -224,6 +379,14 @@ export function CandidateHomeView({
                 Pending fees count only confirmed payments until verified by the
                 institute.
               </p>
+              {pendingPaymentsCount > 0 && (
+                <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 rounded-md">
+                  <Clock className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                  <span>
+                    {pendingPaymentsCount} payment{pendingPaymentsCount === 1 ? '' : 's'} awaiting confirmation
+                  </span>
+                </div>
+              )}
             </div>
             <button
               type="button"

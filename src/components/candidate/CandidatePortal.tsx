@@ -24,6 +24,7 @@ import {
 } from './CandidateLayout';
 import { CandidateOnboardingView } from './CandidateOnboardingView';
 import { CandidateProfileView } from './CandidateProfileView';
+import { CandidateTicketsView } from './CandidateTicketsView';
 import { CandidateTimetableView } from './CandidateTimetableView';
 
 interface CandidatePortalProps {
@@ -180,7 +181,7 @@ export function CandidatePortal({
           .maybeSingle(),
         client
           .from('v_installment_status')
-          .select('id, candidate_id, seq, due_date, amount, paid, state')
+          .select('id, candidate_id, seq, due_date, amount, paid, state, pending_amount')
           .eq('candidate_id', cand.id)
           .order('seq', { ascending: true }),
         client
@@ -291,6 +292,7 @@ export function CandidatePortal({
           overview={overview}
           documents={documents}
           installments={installments}
+          payments={payments}
           onGoToOnboarding={() => setActiveSection('onboarding')}
           onGoToFees={() => setActiveSection('fees')}
         />
@@ -318,6 +320,11 @@ export function CandidatePortal({
           sessions={batchSessions}
           onRefresh={() => loadCandidateWorkspace(false)}
           refreshing={refreshing}
+        />
+      ) : activeSection === 'tickets' ? (
+        <CandidateTicketsView
+          candidateId={candidate.id}
+          candidateCode={candidate.candidate_code}
         />
       ) : (
         <CandidateProfileView

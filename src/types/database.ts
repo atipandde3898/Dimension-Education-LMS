@@ -106,6 +106,7 @@ export interface DashboardStats {
   total_pending_fees: number;
   overdue_installments: number;
   handed_over: number;
+  open_tickets: number;
 }
 
 export enum DocumentType {
@@ -154,7 +155,13 @@ export enum PaymentStatus {
 }
 
 export type PaymentStatusValue = 'pending' | 'confirmed' | 'rejected';
-export type InstallmentStateValue = 'paid' | 'overdue' | 'upcoming';
+export type InstallmentStateValue =
+  | 'paid'
+  | 'submitted'
+  | 'overdue'
+  | 'due_today'
+  | 'due_soon'
+  | 'upcoming';
 
 export interface FeePlan {
   candidate_id: string;
@@ -202,6 +209,7 @@ export interface InstallmentStatus {
   amount: number;
   paid: number;
   state: InstallmentStateValue;
+  pending_amount?: number | null;
 }
 
 export interface PendingPaymentWithCandidate extends Payment {
@@ -261,5 +269,56 @@ export interface CounsellorPaymentRow {
 }
 
 export type SortDirection = 'asc' | 'desc';
+
+export type TicketCategory =
+  | 'fees_payments'
+  | 'documents'
+  | 'timetable_classes'
+  | 'technical'
+  | 'other';
+
+export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+
+export interface Ticket {
+  id: string;
+  ticket_code: string;
+  candidate_id: string;
+  category: TicketCategory;
+  subject: string;
+  description: string;
+  attachment_path: string | null;
+  status: TicketStatus;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+}
+
+export type TicketAuthorRole = 'candidate' | 'admin';
+
+export interface TicketMessage {
+  id: string;
+  ticket_id: string;
+  author_id: string;
+  author_role: TicketAuthorRole;
+  body: string;
+  attachment_path: string | null;
+  created_at: string;
+}
+
+export interface TicketOverview {
+  id: string;
+  ticket_code: string;
+  candidate_id: string;
+  candidate_code: string | null;
+  candidate_name: string | null;
+  batch_code: string | null;
+  counsellor: string | null;
+  category: TicketCategory;
+  subject: string;
+  status: TicketStatus;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
 
 
