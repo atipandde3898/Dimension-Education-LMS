@@ -18,9 +18,11 @@ import type {
 import {
   CANDIDATE_DOCS_BUCKET,
   formatDbError,
+  isCandidatePortalBlocked,
   isMandatoryOnboardingIncomplete,
   maskPan,
 } from '../../utils/domain';
+import { ComingSoonScreen } from '../ComingSoonScreen';
 import { EmptyState, ErrorState, TableSkeleton } from '../ui/States';
 import { CandidateFeesView } from './CandidateFeesView';
 import { CandidateHomeView } from './CandidateHomeView';
@@ -118,6 +120,12 @@ export function CandidatePortal({
 
       const cand = candData as Candidate;
       setCandidate(cand);
+
+      if (cand.status === 'dropped') {
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
 
       const batchPromise = cand.batch_id
         ? client
@@ -314,6 +322,21 @@ export function CandidatePortal({
     onboardingStatus,
     documents,
   );
+
+  if (
+    !loading &&
+    isCandidatePortalBlocked(profile.active, candidate?.status ?? overview?.status)
+  ) {
+    return (
+      <ComingSoonScreen
+        profile={profile}
+        userEmail={profile.email}
+        mode="inactive"
+        onLogout={onLogout}
+        loggingOut={loggingOut}
+      />
+    );
+  }
 
   return (
     <CandidateLayout

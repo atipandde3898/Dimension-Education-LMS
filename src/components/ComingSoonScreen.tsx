@@ -75,8 +75,7 @@ export function ComingSoonScreen({
                 Account Inactive
               </h1>
               <p className="mt-2.5 text-sm text-slate-600 leading-relaxed">
-                Your profile has been marked as inactive. Please contact your
-                institute administrator if you need access restored.
+                Your account is inactive. Please contact the institute.
               </p>
             </>
           )}

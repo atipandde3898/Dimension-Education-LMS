@@ -27,6 +27,7 @@ import {
   formatConsentStatusLabel,
   formatPhotoStatusLabel,
   getInitials,
+  isCandidatePortalBlocked,
   isMandatoryOnboardingIncomplete,
   computeTotalSessionHours,
   filterAndSortRows,
@@ -1321,7 +1322,19 @@ test('isMandatoryOnboardingIncomplete accurately checks profile photo and consen
   assert.equal(formatConsentStatusLabel(1, 2), 'Pending');
 });
 
+test('isCandidatePortalBlocked allows onboarding, active, and completed while blocking inactive profiles and dropped candidates', () => {
+  // Allowed candidate statuses when profile.active is true
+  assert.equal(isCandidatePortalBlocked(true, 'onboarding'), false);
+  assert.equal(isCandidatePortalBlocked(true, 'active'), false);
+  assert.equal(isCandidatePortalBlocked(true, 'completed'), false);
+  assert.equal(isCandidatePortalBlocked(true, null), false);
 
+  // Blocked when candidate status is dropped
+  assert.equal(isCandidatePortalBlocked(true, 'dropped'), true);
 
-
-
+  // Blocked when profile.active is false regardless of candidate status
+  assert.equal(isCandidatePortalBlocked(false, 'onboarding'), true);
+  assert.equal(isCandidatePortalBlocked(false, 'active'), true);
+  assert.equal(isCandidatePortalBlocked(false, 'completed'), true);
+  assert.equal(isCandidatePortalBlocked(false, 'dropped'), true);
+});

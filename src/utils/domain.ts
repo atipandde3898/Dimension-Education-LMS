@@ -2586,6 +2586,14 @@ export function isMandatoryOnboardingIncomplete(
   return !hasPhoto || !hasConsents;
 }
 
-
-
-
+/**
+ * A candidate may access the portal while status is 'onboarding', 'active', or 'completed'.
+ * Only block access when profiles.active is false or candidates.status is 'dropped'.
+ */
+export function isCandidatePortalBlocked(
+  profileActive: boolean | null | undefined,
+  candidateStatus: Candidate['status'] | string | null | undefined,
+): boolean {
+  if (!profileActive) return true;
+  return candidateStatus === 'dropped';
+}
