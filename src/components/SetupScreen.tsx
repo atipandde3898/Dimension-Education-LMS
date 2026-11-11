@@ -12,8 +12,8 @@ export function SetupScreen({ validation }: SetupScreenProps) {
     <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-xl bg-white border border-slate-200 rounded-xl p-8">
         <div className="pb-5 border-b border-slate-200">
-          <p className="text-xs font-medium text-blue-700">CohortDesk</p>
-          <h1 className="mt-1 text-2xl font-semibold text-slate-900 tracking-tight">
+          <p className="text-xs font-semibold text-[#0FA3A3] font-display">Dimension Education</p>
+          <h1 className="mt-1 text-2xl font-bold text-slate-900 tracking-tight font-display">
             Supabase Environment Setup Required
           </h1>
           <p className="mt-2 text-sm text-slate-600 leading-relaxed">

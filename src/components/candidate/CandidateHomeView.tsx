@@ -1,4 +1,15 @@
-import { ArrowRight, CalendarClock, CheckCircle2, Clock } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowRight,
+  Calendar,
+  Check,
+  CheckCircle2,
+  Clock,
+  GraduationCap,
+  IndianRupee,
+  User,
+  X,
+} from 'lucide-react';
 import type {
   CandidateDocument,
   CandidateOverview,
@@ -7,10 +18,10 @@ import type {
   Payment,
 } from '../../types/database';
 import {
-  computeOnboardingProgress,
   findNextDueInstallment,
   formatDate,
   formatInr,
+  getInitials,
   getInstallmentDueRelativeText,
 } from '../../utils/domain';
 import { InstallmentStateBadge } from '../ui/FeeWidgets';
@@ -21,6 +32,7 @@ interface CandidateHomeViewProps {
   installments: InstallmentStatus[];
   payments?: Payment[];
   onboardingStatus?: OnboardingStatus | null;
+  avatarUrl?: string | null;
   onGoToOnboarding: () => void;
   onGoToFees: () => void;
 }
@@ -31,26 +43,27 @@ export function CandidateHomeView({
   installments,
   payments = [],
   onboardingStatus,
+  avatarUrl,
   onGoToOnboarding,
   onGoToFees,
 }: CandidateHomeViewProps) {
-  const pendingFees = Number(overview.pending ?? 0);
+  const firstName =
+    overview.full_name?.trim().split(/\s+/)[0] || overview.full_name || 'Candidate';
+  const initials = getInitials(overview.full_name);
+
   const unpaidInstallments = installments.filter((i) => i.state !== 'paid');
   const allPaid = installments.length > 0 && unpaidInstallments.length === 0;
   const allUnpaidSubmitted =
     unpaidInstallments.length > 0 &&
     unpaidInstallments.every((i) => i.state === 'submitted');
   const nextDue = findNextDueInstallment(installments);
-  const pendingPaymentsCount = payments.filter(
-    (p) => p.status === 'pending',
-  ).length;
 
   const docMap = new Map<string, CandidateDocument>();
   for (const d of documents) {
     docMap.set(d.doc_type, d);
   }
 
-  const getDocStatus = (docType: string): string => {
+  const getDocStatus = (docType: string): 'Approved' | 'Pending' | 'Rejected' | 'Missing' => {
     const doc = docMap.get(docType);
     if (doc?.status === 'approved') return 'Approved';
     if (doc?.status === 'pending') return 'Pending';
@@ -77,461 +90,443 @@ export function CandidateHomeView({
 
   const isOnboardingComplete = Boolean(onboardingStatus?.onboarding_complete);
 
-  const getBadgeStyle = (status: string) => {
-    switch (status) {
-      case 'Approved':
-      case 'Accepted':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      case 'Pending':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
-      case 'Rejected':
-        return 'bg-red-50 text-red-700 border-red-200';
-      default:
-        return 'bg-slate-100 text-slate-600 border-slate-200';
-    }
-  };
+  // 5 checklist steps for the vertical stepper
+  const steps = [
+    {
+      id: 'profile_photo',
+      title: 'Profile photo',
+      status: photoStatus,
+      description: 'Recent passport-style photo with plain background',
+    },
+    {
+      id: 'pan',
+      title: 'PAN card',
+      status: panStatus,
+      description: 'Permanent Account Number verification',
+    },
+    {
+      id: 'photo_id',
+      title: 'Photo / ID proof',
+      status: photoIdStatus,
+      description: 'Government photo identification document',
+    },
+    {
+      id: 'enrollment_form',
+      title: 'Enrollment form',
+      status: enrollmentStatus,
+      description: 'Signed registration agreement and module confirmation',
+    },
+    {
+      id: 'consent',
+      title: 'Terms & Institutional Consent',
+      status: consentStatus,
+      description: 'Code of conduct, policy clauses, and digital signature',
+    },
+  ];
+
+  const completedStepsCount = steps.filter(
+    (s) => s.status === 'Approved' || s.status === 'Accepted',
+  ).length;
+  const progressPercent = Math.round((completedStepsCount / steps.length) * 100);
+
+  // Fee calculation
+  const netFee = Number(overview.net_fee ?? 0);
+  const paidAmount = Number(overview.paid ?? 0);
+  const feeProgressPercent =
+    netFee > 0 ? Math.min(100, Math.round((paidAmount / netFee) * 100)) : 0;
 
   return (
-    <div className="space-y-6">
-      {/* Onboarding Status Checklist Card */}
+    <div className="space-y-8">
+      {/* 1. Welcoming Hero Card: "Welcome, <first name>" with Profile Photo */}
       <section
-        role="status"
-        aria-label="Onboarding verification checklist"
-        className={`p-6 border rounded-xl space-y-4 shadow-xs ${
-          isOnboardingComplete
-            ? 'bg-emerald-50/70 border-emerald-200'
-            : 'bg-white border-slate-200'
-        }`}
+        aria-label="Welcome banner"
+        className="p-6 sm:p-8 bg-white border border-[#E3E9F0] rounded-xl shadow-soft flex flex-col md:flex-row md:items-center justify-between gap-6"
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-          <div className="flex items-start gap-3">
-            {isOnboardingComplete ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+        <div className="flex items-center gap-5">
+          {/* Profile photo or Initials */}
+          <div className="relative shrink-0">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={overview.full_name}
+                className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border-2 border-[#E3E9F0] shadow-xs"
+              />
             ) : (
-              <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-[#E6F6F6] border-2 border-[#0FA3A3]/40 flex items-center justify-center text-xl sm:text-2xl font-bold font-display text-[#0B7C7C] shadow-xs select-none">
+                {initials}
+              </div>
             )}
-            <div>
-              <h2
-                className={`text-base font-semibold ${
-                  isOnboardingComplete
-                    ? 'text-emerald-950 font-bold'
-                    : 'text-slate-900'
-                }`}
-              >
-                {isOnboardingComplete
-                  ? 'Onboarding complete'
-                  : 'Onboarding incomplete'}
-              </h2>
-              <p
-                className={`mt-0.5 text-xs ${
-                  isOnboardingComplete
-                    ? 'text-emerald-800'
-                    : 'text-slate-500'
-                }`}
-              >
-                {isOnboardingComplete
-                  ? 'All 4 required documents and institutional consent have been completed and approved.'
-                  : 'Please complete all required documents and consent agreements to finish onboarding.'}
-              </p>
-            </div>
           </div>
+
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-mono font-semibold text-[#0B7C7C] bg-[#E6F6F6] px-2 py-0.5 rounded tabular-nums">
+                {overview.candidate_code}
+              </span>
+              <span className="text-[#8E9BAE]" aria-hidden="true">·</span>
+              <span className="text-[#5B6B7F] font-medium capitalize">
+                {overview.status}
+              </span>
+            </div>
+
+            <h1 className="mt-1.5 text-2xl sm:text-3xl font-bold font-display text-[#0B1F3A] tracking-tight">
+              Welcome, {firstName}
+            </h1>
+
+            <p className="mt-1 text-sm text-[#5B6B7F] flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>{overview.program || 'Program enrolled'}</span>
+              {overview.batch_code && (
+                <>
+                  <span className="text-[#D1DCE8]" aria-hidden="true">·</span>
+                  <span className="font-mono text-xs font-medium text-[#0B1F3A]">
+                    Batch {overview.batch_code}
+                  </span>
+                </>
+              )}
+              {overview.counsellor && (
+                <>
+                  <span className="text-[#D1DCE8]" aria-hidden="true">·</span>
+                  <span>Counsellor: {overview.counsellor}</span>
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0 self-start md:self-center">
           <button
             type="button"
             onClick={onGoToOnboarding}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-lg transition-colors self-start sm:self-center whitespace-nowrap shrink-0 shadow-xs ${
-              isOnboardingComplete
-                ? 'text-emerald-900 bg-white border border-emerald-300 hover:bg-emerald-100/60'
-                : 'text-white bg-blue-700 hover:bg-blue-800'
-            }`}
+            className="px-4 py-2.5 text-xs font-semibold text-[#0B1F3A] bg-white border border-[#E3E9F0] rounded-lg hover:bg-[#F5F8FB] transition-colors shadow-xs"
           >
-            <span>{isOnboardingComplete ? 'Review Documents' : 'Complete Onboarding'}</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            My Documents
+          </button>
+          <button
+            type="button"
+            onClick={onGoToFees}
+            className="px-4 py-2.5 text-xs font-semibold text-white bg-[#0B1F3A] hover:bg-[#081629] rounded-lg transition-colors shadow-xs"
+          >
+            View Fees
+          </button>
+        </div>
+      </section>
+
+      {/* 2. Onboarding Checklist as a Vertical Stepper with Progress Ring & Prominent Continue Button */}
+      <section
+        aria-labelledby="onboarding-stepper-heading"
+        className="p-6 sm:p-8 bg-white border border-[#E3E9F0] rounded-xl shadow-soft space-y-6"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 pb-6 border-b border-[#E3E9F0]">
+          <div className="flex items-center gap-5">
+            {/* Circular Progress Ring */}
+            <div className="relative w-16 h-16 shrink-0 flex items-center justify-center">
+              <svg className="w-16 h-16 transform -rotate-90" viewBox="0 0 72 72">
+                <circle
+                  cx="36"
+                  cy="36"
+                  r="30"
+                  className="text-[#E6F6F6] stroke-current"
+                  strokeWidth="6"
+                  fill="transparent"
+                />
+                <circle
+                  cx="36"
+                  cy="36"
+                  r="30"
+                  className="text-[#0FA3A3] stroke-current transition-all duration-500 ease-out"
+                  strokeWidth="6"
+                  strokeDasharray={188.5}
+                  strokeDashoffset={188.5 - (188.5 * progressPercent) / 100}
+                  strokeLinecap="round"
+                  fill="transparent"
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center select-none">
+                <span className="font-display font-bold text-sm text-[#0B1F3A] leading-tight">
+                  {completedStepsCount}/5
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2">
+                <h2
+                  id="onboarding-stepper-heading"
+                  className="text-lg font-bold font-display text-[#0B1F3A]"
+                >
+                  Onboarding Checklist
+                </h2>
+                {isOnboardingComplete ? (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#E7F6EF] text-[#1F9D6B] border border-[#1F9D6B]/30">
+                    Onboarding complete
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#FDF4E0] text-[#C98A0B] border border-[#C98A0B]/30">
+                    {5 - completedStepsCount} step{5 - completedStepsCount === 1 ? '' : 's'} remaining
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-[#5B6B7F]">
+                {isOnboardingComplete
+                  ? 'All mandatory identity documents and policy consents are approved.'
+                  : 'Complete your profile photo, identity documents, and terms of consent to unlock full portal access.'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onGoToOnboarding}
+            className="px-5 py-2.5 text-sm font-semibold text-white bg-[#0B1F3A] hover:bg-[#081629] rounded-lg transition-colors flex items-center justify-center gap-2 shadow-xs shrink-0 self-start sm:self-center"
+          >
+            <span>{isOnboardingComplete ? 'Review Documents' : 'Continue'}</span>
+            <ArrowRight className="w-4 h-4 text-[#0FA3A3]" />
           </button>
         </div>
 
-        {/* 5-item Checklist */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-1">
-          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-slate-700">Profile photo</span>
-            <span
-              className={`px-2 py-0.5 text-[11px] font-semibold border rounded-md whitespace-nowrap ${getBadgeStyle(
-                photoStatus,
-              )}`}
-            >
-              {photoStatus}
-            </span>
-          </div>
+        {/* Vertical Stepper */}
+        <div className="relative pl-2 sm:pl-4 space-y-6">
+          {steps.map((step, index) => {
+            const isDone = step.status === 'Approved' || step.status === 'Accepted';
+            const isPending = step.status === 'Pending';
+            const isRejected = step.status === 'Rejected';
+            const isLast = index === steps.length - 1;
 
-          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-slate-700">PAN card</span>
-            <span
-              className={`px-2 py-0.5 text-[11px] font-semibold border rounded-md whitespace-nowrap ${getBadgeStyle(
-                panStatus,
-              )}`}
-            >
-              {panStatus}
-            </span>
-          </div>
-
-          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-slate-700">Photo / ID proof</span>
-            <span
-              className={`px-2 py-0.5 text-[11px] font-semibold border rounded-md whitespace-nowrap ${getBadgeStyle(
-                photoIdStatus,
-              )}`}
-            >
-              {photoIdStatus}
-            </span>
-          </div>
-
-          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-slate-700">Enrollment form</span>
-            <span
-              className={`px-2 py-0.5 text-[11px] font-semibold border rounded-md whitespace-nowrap ${getBadgeStyle(
-                enrollmentStatus,
-              )}`}
-            >
-              {enrollmentStatus}
-            </span>
-          </div>
-
-          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-slate-700">Consent</span>
-            <span
-              className={`px-2 py-0.5 text-[11px] font-semibold border rounded-md whitespace-nowrap ${getBadgeStyle(
-                consentStatus,
-              )}`}
-            >
-              {consentStatus}
-            </span>
-          </div>
-        </div>
-      </section>
-
-      {/* Candidate Overview Header & Cohort Assignment */}
-      <section
-        aria-labelledby="candidate-home-heading"
-        className="p-6 bg-white border border-slate-200 rounded-xl space-y-6"
-      >
-        <div className="pb-5 border-b border-slate-100">
-          <p className="font-mono text-xs font-semibold text-blue-700 tabular-nums">
-            {overview.candidate_code}
-          </p>
-          <h1
-            id="candidate-home-heading"
-            className="mt-1 text-2xl font-semibold text-slate-900 tracking-tight"
-          >
-            Welcome, {overview.full_name}
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Your enrolled program, module, batch assignment, and fee summary.
-          </p>
-        </div>
-
-        <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 text-sm">
-          <div>
-            <dt className="text-xs text-slate-500">Candidate Code</dt>
-            <dd className="mt-1 font-mono text-sm font-semibold text-slate-900 tabular-nums">
-              {overview.candidate_code}
-            </dd>
-          </div>
-
-          <div>
-            <dt className="text-xs text-slate-500">Program</dt>
-            <dd className="mt-1 font-medium text-slate-900">
-              {overview.program || '—'}
-            </dd>
-          </div>
-
-          <div>
-            <dt className="text-xs text-slate-500">Module</dt>
-            <dd className="mt-1 font-medium text-slate-900">
-              {overview.module || '—'}
-            </dd>
-          </div>
-
-          <div>
-            <dt className="text-xs text-slate-500">Batch Code</dt>
-            <dd className="mt-1 font-mono text-sm font-medium text-slate-900 tabular-nums">
-              {overview.batch_code || 'Unassigned'}
-            </dd>
-          </div>
-
-          <div>
-            <dt className="text-xs text-slate-500">Batch Mode</dt>
-            <dd className="mt-1 font-medium text-slate-900 capitalize">
-              {overview.batch_mode || '—'}
-            </dd>
-          </div>
-
-          <div>
-            <dt className="text-xs text-slate-500">Counsellor</dt>
-            <dd className="mt-1 font-medium text-slate-900">
-              {overview.counsellor || '—'}
-            </dd>
-          </div>
-        </dl>
-      </section>
-
-      {/* Next Due Card + Fee Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
-        {/* Next due Card */}
-        {allUnpaidSubmitted ? (
-          <section
-            aria-labelledby="candidate-next-due-heading"
-            className="p-6 bg-blue-50/70 border border-blue-200 rounded-xl flex flex-col justify-between gap-5"
-          >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <CalendarClock className="w-4 h-4 text-blue-700 shrink-0" />
-                  <h2
-                    id="candidate-next-due-heading"
-                    className="text-sm font-semibold text-blue-950"
-                  >
-                    Next due
-                  </h2>
-                </div>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-blue-800 bg-blue-100/80 border border-blue-200 rounded-md whitespace-nowrap shrink-0">
-                  <Clock className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                  Awaiting confirmation
-                </span>
-              </div>
-
-              <div className="pt-1 space-y-1">
-                <p className="text-sm font-medium text-blue-950">
-                  Payment submitted. Awaiting confirmation.
-                </p>
-                <p className="text-xs text-blue-800">
-                  Your submitted installment payment is currently awaiting review
-                  and confirmation by the institute administration.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={onGoToFees}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors self-start whitespace-nowrap"
-            >
-              <span>Go to Fees</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </section>
-        ) : allPaid ? (
-          <section
-            aria-labelledby="candidate-next-due-heading"
-            className="p-6 bg-emerald-50/60 border border-emerald-200 rounded-xl flex flex-col justify-between gap-5"
-          >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                  <h2
-                    id="candidate-next-due-heading"
-                    className="text-sm font-semibold text-emerald-950"
-                  >
-                    Next due
-                  </h2>
-                </div>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-800 bg-emerald-100/80 border border-emerald-200 rounded-md whitespace-nowrap shrink-0">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                  Paid
-                </span>
-              </div>
-
-              <div className="pt-1">
-                <p className="text-sm font-medium text-emerald-900">
-                  All installments are paid
-                </p>
-                <p className="mt-1 text-xs text-emerald-700">
-                  You have no pending fees or overdue installments.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={onGoToFees}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 hover:text-emerald-950 transition-colors self-start whitespace-nowrap"
-            >
-              <span>View Payment History</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </section>
-        ) : nextDue ? (
-          <section
-            aria-labelledby="candidate-next-due-heading"
-            className={`p-6 rounded-xl flex flex-col justify-between gap-5 border ${
-              nextDue.state === 'overdue'
-                ? 'bg-red-50/50 border-red-200'
-                : nextDue.state === 'due_today'
-                ? 'bg-orange-50/50 border-orange-200'
-                : nextDue.state === 'due_soon'
-                ? 'bg-amber-50/50 border-amber-200'
-                : 'bg-white border-slate-200'
-            }`}
-          >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <CalendarClock
-                    className={`w-4 h-4 shrink-0 ${
-                      nextDue.state === 'overdue'
-                        ? 'text-red-700'
-                        : nextDue.state === 'due_today'
-                        ? 'text-orange-700'
-                        : nextDue.state === 'due_soon'
-                        ? 'text-amber-700'
-                        : 'text-slate-500'
+            return (
+              <div key={step.id} className="relative flex items-start gap-4 group">
+                {/* Connecting Line */}
+                {!isLast && (
+                  <div
+                    aria-hidden="true"
+                    className={`absolute left-4 top-8 -bottom-6 w-0.5 ${
+                      isDone ? 'bg-[#0FA3A3]' : 'bg-[#E3E9F0]'
                     }`}
                   />
-                  <h2
-                    id="candidate-next-due-heading"
-                    className="text-sm font-semibold text-slate-900"
-                  >
-                    Next due
-                  </h2>
-                </div>
-                <InstallmentStateBadge state={nextDue.state} />
-              </div>
-
-              <div className="pt-1 space-y-1.5">
-                <div className="flex items-baseline justify-between gap-2 flex-wrap">
-                  <p className="font-mono text-2xl font-semibold text-slate-900 tabular-nums">
-                    {formatInr(nextDue.amount)}
-                  </p>
-                  <span
-                    className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                      nextDue.state === 'overdue'
-                        ? 'text-red-800 bg-red-100/90'
-                        : nextDue.state === 'due_today'
-                        ? 'text-orange-800 bg-orange-100/90'
-                        : nextDue.state === 'due_soon'
-                        ? 'text-amber-800 bg-amber-100/90'
-                        : 'text-slate-700 bg-slate-100'
-                    }`}
-                  >
-                    {getInstallmentDueRelativeText(nextDue.due_date, nextDue.state)}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-600">
-                  Installment #{nextDue.seq} · Due{' '}
-                  <span className="font-mono font-medium text-slate-900 tabular-nums">
-                    {formatDate(nextDue.due_date)}
-                  </span>
-                </p>
-
-                {Number(nextDue.pending_amount || 0) > 0 && (
-                  <p className="text-xs font-medium text-blue-700 pt-0.5">
-                    {formatInr(nextDue.pending_amount)} submitted, awaiting confirmation
-                  </p>
                 )}
-              </div>
-            </div>
 
-            <button
-              type="button"
-              onClick={onGoToFees}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors self-start whitespace-nowrap"
-            >
-              <span>Go to Fees</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </section>
-        ) : (
-          <section
-            aria-labelledby="candidate-next-due-heading"
-            className="p-6 bg-white border border-slate-200 rounded-xl flex flex-col justify-between gap-5"
-          >
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <CalendarClock className="w-4 h-4 text-slate-500 shrink-0" />
-                <h2
-                  id="candidate-next-due-heading"
-                  className="text-sm font-semibold text-slate-900"
+                {/* Step Indicator Dot */}
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 z-10 transition-colors ${
+                    isDone
+                      ? 'bg-[#E7F6EF] text-[#1F9D6B] border-2 border-[#1F9D6B]'
+                      : isPending
+                        ? 'bg-[#E6F6F6] text-[#0B7C7C] border-2 border-[#0FA3A3]'
+                        : isRejected
+                          ? 'bg-[#FBEAE9] text-[#C2413B] border-2 border-[#C2413B]'
+                          : 'bg-[#F5F8FB] text-[#8E9BAE] border-2 border-[#E3E9F0]'
+                  }`}
                 >
-                  Next due
-                </h2>
+                  {isDone ? (
+                    <Check className="w-4 h-4 stroke-[2.5]" />
+                  ) : isPending ? (
+                    <Clock className="w-4 h-4 stroke-[2]" />
+                  ) : isRejected ? (
+                    <X className="w-4 h-4 stroke-[2.5]" />
+                  ) : (
+                    <span>{index + 1}</span>
+                  )}
+                </div>
+
+                {/* Step Content */}
+                <div className="flex-1 min-w-0 pt-0.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <p className={`text-sm font-semibold ${isDone ? 'text-[#0B1F3A]' : 'text-[#0F1B2D]'}`}>
+                      {step.title}
+                    </p>
+                    <p className="text-xs text-[#5B6B7F] mt-0.5">
+                      {step.description}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0">
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        isDone
+                          ? 'bg-[#E7F6EF] text-[#1F9D6B]'
+                          : isPending
+                            ? 'bg-[#E6F6F6] text-[#0B7C7C]'
+                            : isRejected
+                              ? 'bg-[#FBEAE9] text-[#C2413B]'
+                              : 'bg-[#F5F8FB] text-[#8E9BAE]'
+                      }`}
+                    >
+                      {step.status}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <p className="text-sm text-slate-500 pt-1">
-                No unpaid installments scheduled yet.
-              </p>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 3. Roomy Two-Column Grid: Fees Progress & Next Due Alert */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        {/* Fees Progress Card: Paid Amount as Large Figure with Progress Bar toward Total */}
+        <section
+          aria-labelledby="fees-progress-heading"
+          className="p-6 sm:p-8 bg-white border border-[#E3E9F0] rounded-xl shadow-soft flex flex-col justify-between space-y-6"
+        >
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-[#E3E9F0]">
+              <h2
+                id="fees-progress-heading"
+                className="text-base font-bold font-display text-[#0B1F3A]"
+              >
+                Fees &amp; Payments
+              </h2>
+              <button
+                type="button"
+                onClick={onGoToFees}
+                className="text-xs font-semibold text-[#0B7C7C] hover:text-[#0B8A8A] flex items-center gap-1 transition-colors"
+              >
+                <span>View fee plan</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
             </div>
 
+            <div className="mt-5 space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#5B6B7F]">
+                  Total Paid
+                </p>
+                <div className="mt-1.5 flex flex-wrap items-baseline gap-3">
+                  <span className="font-display text-3xl sm:text-4xl font-extrabold text-[#0B1F3A] tabular-nums">
+                    {formatInr(paidAmount)}
+                  </span>
+                  <span className="text-xs text-[#5B6B7F]">
+                    of {formatInr(netFee)} net total fee ({feeProgressPercent}%)
+                  </span>
+                </div>
+              </div>
+
+              {/* Slim Teal Progress Bar */}
+              <div className="w-full bg-[#E6F6F6] rounded-full h-2.5 overflow-hidden">
+                <div
+                  className="bg-[#0FA3A3] h-2.5 rounded-full transition-all duration-500"
+                  style={{ width: `${feeProgressPercent}%` }}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 pt-2 text-xs">
+                <div className="p-3 bg-[#F5F8FB] border border-[#E3E9F0] rounded-lg">
+                  <span className="text-[#5B6B7F]">Pending balance:</span>
+                  <p className="mt-1 font-display text-base font-bold text-[#0B1F3A] tabular-nums">
+                    {formatInr(overview.pending)}
+                  </p>
+                </div>
+                <div className="p-3 bg-[#F5F8FB] border border-[#E3E9F0] rounded-lg">
+                  <span className="text-[#5B6B7F]">Remaining installments:</span>
+                  <p className="mt-1 font-display text-base font-bold text-[#0B1F3A] tabular-nums">
+                    {unpaidInstallments.length}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-[#E3E9F0]">
             <button
               type="button"
               onClick={onGoToFees}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors self-start whitespace-nowrap"
+              className="w-full min-h-[44px] px-4 py-2 text-sm font-semibold text-[#0B1F3A] bg-white border border-[#E3E9F0] rounded-lg hover:bg-[#F5F8FB] transition-colors flex items-center justify-center gap-2"
             >
-              <span>Go to Fees</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <IndianRupee className="w-4 h-4 text-[#0FA3A3]" />
+              <span>Submit Payment Proof</span>
             </button>
-          </section>
-        )}
+          </div>
+        </section>
 
-        {/* Fee Summary */}
+        {/* Next Due / Settlement Card */}
         <section
-          aria-labelledby="candidate-fees-heading"
-          className="lg:col-span-2 p-6 bg-white border border-slate-200 rounded-xl flex flex-col justify-between gap-5"
+          aria-labelledby="settlement-status-heading"
+          className="p-6 sm:p-8 bg-white border border-[#E3E9F0] rounded-xl shadow-soft flex flex-col justify-between space-y-6"
         >
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-            <div>
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-[#E3E9F0]">
               <h2
-                id="candidate-fees-heading"
-                className="text-base font-semibold text-slate-900"
+                id="settlement-status-heading"
+                className="text-base font-bold font-display text-[#0B1F3A]"
               >
-                Fee Summary
+                Next Due Installment
               </h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Pending fees count only confirmed payments until verified by the
-                institute.
-              </p>
-              {pendingPaymentsCount > 0 && (
-                <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 rounded-md">
-                  <Clock className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                  <span>
-                    {pendingPaymentsCount} payment{pendingPaymentsCount === 1 ? '' : 's'} awaiting confirmation
-                  </span>
+              <span className="text-xs text-[#5B6B7F]">Milestone</span>
+            </div>
+
+            <div className="mt-5">
+              {allUnpaidSubmitted ? (
+                <div className="p-5 bg-[#E8F0FA] border border-[#2F6FB0]/20 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-[#2F6FB0]" />
+                    <p className="text-base font-bold font-display text-[#2F6FB0]">
+                      Payment submitted
+                    </p>
+                  </div>
+                  <p className="text-xs text-[#5B6B7F] leading-relaxed">
+                    Awaiting admin confirmation. Your account balance will update as soon as the finance desk audits your transfer receipt.
+                  </p>
+                </div>
+              ) : allPaid ? (
+                <div className="p-5 bg-[#E7F6EF] border border-[#1F9D6B]/20 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-[#1F9D6B]" />
+                    <p className="text-base font-bold font-display text-[#1F9D6B]">
+                      All installments are paid
+                    </p>
+                  </div>
+                  <p className="text-xs text-[#5B6B7F]">
+                    No outstanding balance remains for your current course enrollment.
+                  </p>
+                </div>
+              ) : nextDue ? (
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-[#5B6B7F]">
+                        Installment #{nextDue.seq}
+                      </p>
+                      <p className="mt-1 font-display text-3xl font-extrabold text-[#0B1F3A] tabular-nums">
+                        {formatInr(nextDue.amount)}
+                      </p>
+                    </div>
+                    <InstallmentStateBadge state={nextDue.state} />
+                  </div>
+
+                  <div className="p-4 bg-[#F5F8FB] border border-[#E3E9F0] rounded-lg space-y-1.5 text-xs text-[#5B6B7F]">
+                    <div className="flex justify-between">
+                      <span>Due date:</span>
+                      <span className="font-semibold text-[#0B1F3A] font-mono tabular-nums">
+                        {formatDate(nextDue.due_date)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Schedule timeline:</span>
+                      <span className="font-semibold text-[#0B7C7C]">
+                        {getInstallmentDueRelativeText(nextDue.due_date)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-5 bg-[#F5F8FB] border border-[#E3E9F0] rounded-xl text-center text-xs text-[#5B6B7F]">
+                  No upcoming installment found.
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={onGoToFees}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors self-start whitespace-nowrap shrink-0"
-            >
-              <span>Manage Fees</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
           </div>
 
-          <dl className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-4 border-t border-slate-100">
-            <div>
-              <dt className="text-xs text-slate-500">Net Fee</dt>
-              <dd className="mt-1.5 font-mono text-2xl font-semibold text-slate-900 tabular-nums">
-                {formatInr(overview.net_fee)}
-              </dd>
-            </div>
-
-            <div>
-              <dt className="text-xs text-slate-500">Paid</dt>
-              <dd className="mt-1.5 font-mono text-2xl font-semibold text-emerald-700 tabular-nums">
-                {formatInr(overview.paid)}
-              </dd>
-            </div>
-
-            <div>
-              <dt className="text-xs text-slate-500">Pending</dt>
-              <dd
-                className={`mt-1.5 font-mono text-2xl font-semibold tabular-nums ${
-                  pendingFees > 0 ? 'text-amber-700' : 'text-slate-900'
-                }`}
+          <div className="pt-3 border-t border-[#E3E9F0]">
+            <div className="flex items-center justify-between text-xs text-[#5B6B7F]">
+              <span>Need help with fees?</span>
+              <button
+                type="button"
+                onClick={onGoToFees}
+                className="font-semibold text-[#0B7C7C] hover:text-[#0B8A8A]"
               >
-                {formatInr(overview.pending)}
-              </dd>
+                Contact Support &rarr;
+              </button>
             </div>
-          </dl>
+          </div>
         </section>
       </div>
     </div>

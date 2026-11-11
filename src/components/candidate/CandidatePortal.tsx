@@ -348,6 +348,7 @@ export function CandidatePortal({
           installments={installments}
           payments={payments}
           onboardingStatus={onboardingStatus}
+          avatarUrl={avatarUrl}
           onGoToOnboarding={() => setActiveSection('onboarding')}
           onGoToFees={() => setActiveSection('fees')}
         />

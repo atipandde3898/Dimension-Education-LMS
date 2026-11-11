@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { Profile } from '../types/database';
 import { AccountMenu } from './ui/AccountMenu';
+import { BrandLogo } from './ui/BrandLogo';
 
 export type AdminSection =
   | 'dashboard'
@@ -50,7 +51,7 @@ interface AdminLayoutProps {
 const NAV_ITEMS: Array<{
   id: AdminSection;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
 }> = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'catalog', label: 'Programs & Modules', icon: BookOpen },
@@ -83,19 +84,17 @@ export function AdminLayout({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      {/* Desktop Sidebar */}
+    <div className="min-h-screen bg-[#F5F8FB] flex">
+      {/* Desktop Sidebar (260px wide, dark navy) */}
       <aside
         aria-label="Primary navigation"
-        className="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 bg-slate-900 text-slate-100 border-r border-slate-800"
+        className="hidden lg:flex lg:flex-col lg:w-[260px] lg:fixed lg:inset-y-0 bg-[#0B1F3A] text-slate-100 border-r border-[#12294A] z-40"
       >
-        <div className="h-14 px-5 flex items-center border-b border-slate-800 shrink-0">
-          <span className="text-base font-bold tracking-tight text-white whitespace-nowrap">
-            CohortDesk
-          </span>
+        <div className="h-16 px-5 flex items-center bg-[#081629] border-b border-[#12294A] shrink-0">
+          <BrandLogo variant="dark" size="md" />
         </div>
 
-        <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = activeSection === item.id;
@@ -105,20 +104,20 @@ export function AdminLayout({
                 type="button"
                 onClick={() => handleSelectNav(item.id)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
+                className={`relative w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap group ${
                   isActive
-                    ? 'bg-blue-700 text-white'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                    ? 'bg-[#12294A] text-white before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-[#0FA3A3] before:rounded-r'
+                    : 'text-slate-300 hover:text-white hover:bg-[#12294A]/70'
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <Icon className="w-4 h-4 shrink-0" />
+                  <Icon className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-[#0FA3A3]' : 'text-slate-400 group-hover:text-slate-200'}`} strokeWidth={1.75} />
                   <span className="truncate">{item.label}</span>
                 </div>
                 {item.id === 'tickets' &&
                   typeof openTicketsCount === 'number' &&
                   openTicketsCount > 0 && (
-                    <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-500 text-white tabular-nums">
+                    <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-[#0FA3A3] text-white tabular-nums">
                       {openTicketsCount}
                     </span>
                   )}
@@ -127,7 +126,7 @@ export function AdminLayout({
           })}
         </nav>
 
-        <div className="p-3 border-t border-slate-800 shrink-0">
+        <div className="p-3 bg-[#081629]/70 border-t border-[#12294A] shrink-0">
           <AccountMenu
             fullName={profile.full_name || 'Administrator'}
             email={profile.email}
@@ -141,31 +140,29 @@ export function AdminLayout({
       {/* Mobile Navigation Drawer */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-40 lg:hidden flex"
+          className="fixed inset-0 z-50 lg:hidden flex"
           role="dialog"
           aria-modal="true"
           aria-label="Navigation menu"
         >
           <div
-            className="fixed inset-0 bg-slate-950/50"
+            className="fixed inset-0 bg-[#0B1F3A]/60 backdrop-blur-xs transition-opacity"
             onClick={() => setMobileMenuOpen(false)}
           />
-          <div className="relative z-10 w-64 max-w-[80vw] bg-slate-900 text-slate-100 flex flex-col h-full">
-            <div className="h-14 px-5 flex items-center justify-between border-b border-slate-800">
-              <span className="text-base font-bold tracking-tight text-white">
-                CohortDesk
-              </span>
+          <div className="relative z-10 w-[260px] max-w-[85vw] bg-[#0B1F3A] text-slate-100 flex flex-col h-full shadow-2xl">
+            <div className="h-16 px-5 flex items-center justify-between bg-[#081629] border-b border-[#12294A]">
+              <BrandLogo variant="dark" size="sm" />
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}
                 aria-label="Close navigation menu"
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg"
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-[#12294A] rounded-lg transition-colors"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" strokeWidth={1.75} />
               </button>
             </div>
 
-            <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
+            <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
               {NAV_ITEMS.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeSection === item.id;
@@ -175,20 +172,20 @@ export function AdminLayout({
                     type="button"
                     onClick={() => handleSelectNav(item.id)}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
+                    className={`relative w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
                       isActive
-                        ? 'bg-blue-700 text-white'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                        ? 'bg-[#12294A] text-white before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-[#0FA3A3] before:rounded-r'
+                        : 'text-slate-300 hover:text-white hover:bg-[#12294A]/70'
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <Icon className="w-4 h-4 shrink-0" />
+                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#0FA3A3]' : 'text-slate-400'}`} strokeWidth={1.75} />
                       <span className="truncate">{item.label}</span>
                     </div>
                     {item.id === 'tickets' &&
                       typeof openTicketsCount === 'number' &&
                       openTicketsCount > 0 && (
-                        <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-500 text-white tabular-nums">
+                        <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-[#0FA3A3] text-white tabular-nums">
                           {openTicketsCount}
                         </span>
                       )}
@@ -197,7 +194,7 @@ export function AdminLayout({
               })}
             </nav>
 
-            <div className="p-3 border-t border-slate-800">
+            <div className="p-3 bg-[#081629]/70 border-t border-[#12294A]">
               <AccountMenu
                 fullName={profile.full_name || 'Administrator'}
                 email={profile.email}
@@ -211,20 +208,24 @@ export function AdminLayout({
       )}
 
       {/* Main Workspace */}
-      <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
-        <header className="sticky top-0 z-30 h-14 px-4 sm:px-8 bg-white border-b border-slate-200 flex items-center justify-between gap-4 shrink-0">
+      <div className="flex-1 lg:pl-[260px] flex flex-col min-w-0">
+        <header className="sticky top-0 z-30 h-16 px-4 sm:px-8 bg-white border-b border-[#E3E9F0] flex items-center justify-between gap-4 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Open navigation menu"
-              className="lg:hidden p-2 -ml-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+              className="lg:hidden p-2 -ml-2 text-[#0B1F3A] hover:bg-[#F5F8FB] rounded-lg transition-colors"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="w-5 h-5" strokeWidth={1.75} />
             </button>
 
+            <div className="flex items-center gap-2.5 lg:hidden mr-1">
+              <BrandLogo variant="light" size="sm" showName={false} />
+            </div>
+
             <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm min-w-0">
-              <span className="hidden sm:inline text-slate-400 whitespace-nowrap">
+              <span className="hidden sm:inline text-[#5B6B7F] font-medium whitespace-nowrap">
                 Admin
               </span>
               {breadcrumbs.map((crumb, index) => {
@@ -232,20 +233,21 @@ export function AdminLayout({
                 return (
                   <React.Fragment key={`${crumb.label}-${index}`}>
                     <ChevronRight
-                      className={`w-4 h-4 text-slate-400 shrink-0 ${
+                      className={`w-4 h-4 text-[#8E9BAE] shrink-0 ${
                         index === 0 ? 'hidden sm:inline' : ''
                       }`}
+                      strokeWidth={1.75}
                     />
                     {crumb.onClick && !isLast ? (
                       <button
                         type="button"
                         onClick={crumb.onClick}
-                        className="text-slate-600 hover:text-slate-900 font-medium transition-colors whitespace-nowrap shrink-0"
+                        className="text-[#5B6B7F] hover:text-[#0B1F3A] font-medium transition-colors whitespace-nowrap shrink-0"
                       >
                         {crumb.label}
                       </button>
                     ) : (
-                      <span className="font-semibold text-slate-900 truncate">
+                      <span className="font-semibold text-[#0B1F3A] font-display truncate">
                         {crumb.label}
                       </span>
                     )}
@@ -258,7 +260,7 @@ export function AdminLayout({
           <div className="flex items-center gap-3 shrink-0">{primaryAction}</div>
         </header>
 
-        <main className="flex-1 px-4 sm:px-8 py-6 max-w-7xl w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-8 py-6 max-w-[1280px] w-full mx-auto">
           {children}
         </main>
       </div>

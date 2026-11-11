@@ -1,24 +1,395 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
-  --font-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Primary Brand Navy */
+  --color-navy: #0B1F3A;
+  --color-navy-dark: #081629;
+  --color-navy-700: #12294A;
+
+  /* Teal Accent */
+  --color-teal: #0FA3A3;
+  --color-teal-hover: #0B8A8A;
+  --color-teal-light: #E6F6F6;
+  --color-teal-text: #0B7C7C;
+
+  /* Neutral Canvas & Surfaces */
+  --color-page: #F5F8FB;
+  --color-card: #FFFFFF;
+  --color-border: #E3E9F0;
+  --color-body: #0F1B2D;
+  --color-muted: #5B6B7F;
+
+  /* Status Tokens */
+  --color-status-success: #1F9D6B;
+  --color-status-success-bg: #E7F6EF;
+  --color-status-warning: #C98A0B;
+  --color-status-warning-bg: #FDF4E0;
+  --color-status-danger: #C2413B;
+  --color-status-danger-bg: #FBEAE9;
+  --color-status-info: #2F6FB0;
+  --color-status-info-bg: #E8F0FA;
+
+  /* Radius & Shadows */
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --shadow-soft: 0 1px 2px rgba(15,27,45,.06), 0 4px 16px rgba(15,27,45,.04);
+
+  /* Theme mappings for existing classes */
+  --color-blue-700: #0B1F3A;
+  --color-blue-800: #081629;
+  --color-blue-900: #081629;
+  --color-blue-600: #0B7C7C;
+  --color-blue-500: #0FA3A3;
+  --color-blue-100: #E6F6F6;
+  --color-blue-50: #E6F6F6;
+
+  --color-slate-950: #081629;
+  --color-slate-900: #0B1F3A;
+  --color-slate-800: #12294A;
+  --color-slate-700: #0B1F3A;
+  --color-slate-600: #5B6B7F;
+  --color-slate-500: #5B6B7F;
+  --color-slate-400: #8E9BAE;
+  --color-slate-300: #D1DCE8;
+  --color-slate-200: #E3E9F0;
+  --color-slate-100: #F5F8FB;
+  --color-slate-50: #F5F8FB;
+
+  --color-emerald-50: #E7F6EF;
+  --color-emerald-700: #1F9D6B;
+  --color-emerald-800: #168257;
+
+  --color-amber-50: #FDF4E0;
+  --color-amber-700: #C98A0B;
+  --color-amber-800: #A36E06;
+
+  --color-red-50: #FBEAE9;
+  --color-red-700: #C2413B;
+  --color-red-800: #9E322C;
 }
 
 @layer base {
-  body {
-    font-family: var(--font-sans);
-    color: #0f172a;
-    background-color: #f8fafc;
+  :root {
+    --bg-page: #F5F8FB;
+    --bg-card: #FFFFFF;
+    --bg-raised: #FFFFFF;
+    --border-color: #E3E9F0;
+    --text-body: #0F1B2D;
+    --text-muted: #5B6B7F;
+    --navy: #0B1F3A;
+    --navy-dark: #081629;
+    --navy-700: #12294A;
+    --teal: #0FA3A3;
+    --teal-hover: #0B8A8A;
+    --teal-light: #E6F6F6;
+    --teal-text: #0B7C7C;
   }
 
-  h1, h2, h3, h4 {
+  body {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    color: #0F1B2D;
+    background-color: #F5F8FB;
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
+    color: #0B1F3A;
     text-wrap: balance;
   }
+
+  button, a, input, select, textarea {
+    transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+    transition-duration: 180ms;
+    transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    border-color: #0FA3A3 !important;
+    box-shadow: 0 0 0 2px rgba(15, 163, 163, 0.25) !important;
+  }
+
+  button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #0FA3A3 !important;
+  }
+}
+
+/* ==========================================================================
+   DARK MODE EXTENSION — Visual Theme Only
+   Page background #0B1220, cards #111A2C, raised surfaces & modals #16213A,
+   borders #23304A, body text #E6EDF7, muted text #9AA9BF,
+   sidebar dark navy #081629, teal link/text #2CC4C4, teal accent #0FA3A3.
+   ========================================================================== */
+
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background-color: #0B1220 !important;
+  color: #E6EDF7 !important;
+}
+
+/* Page titles and section headings */
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  color: #E6EDF7 !important;
+}
+
+/* Cards & primary content surfaces */
+.dark .bg-white {
+  background-color: #111A2C !important;
+}
+
+.dark .bg-\[\#F5F8FB\],
+.dark .bg-slate-50,
+.dark .bg-slate-100 {
+  background-color: #0B1220 !important;
+}
+
+/* Raised surfaces, modals, popovers */
+.dark [role="dialog"],
+.dark .modal-surface,
+.dark [role="menu"] {
+  background-color: #16213A !important;
+}
+
+/* Borders across elements, tables, cards, dividers */
+.dark .border-\[\#E3E9F0\],
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300,
+.dark .divide-\[\#E3E9F0\],
+.dark .divide-slate-200,
+.dark .divide-slate-100 {
+  border-color: #23304A !important;
+}
+
+/* Text colors */
+.dark .text-\[\#0F1B2D\],
+.dark .text-\[\#0B1F3A\],
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: #E6EDF7 !important;
+}
+
+.dark .text-\[\#5B6B7F\],
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: #9AA9BF !important;
+}
+
+.dark .text-slate-400 {
+  color: #7B8CA3 !important;
+}
+
+/* Teal text and links become #2CC4C4 on dark */
+.dark .text-\[\#0B7C7C\],
+.dark a.text-\[\#0B7C7C\],
+.dark a.text-\[\#0FA3A3\],
+.dark button.text-\[\#0B7C7C\],
+.dark button.text-\[\#0FA3A3\] {
+  color: #2CC4C4 !important;
+}
+
+.dark a.text-\[\#0B7C7C\]:hover,
+.dark a.text-\[\#0FA3A3\]:hover,
+.dark button.text-\[\#0B7C7C\]:hover,
+.dark button.text-\[\#0FA3A3\]:hover {
+  color: #5CE0E0 !important;
+}
+
+/* Primary buttons on dark: teal (#0FA3A3) with dark navy text (#081629) */
+.dark button.bg-\[\#0B1F3A\],
+.dark button.bg-blue-700,
+.dark a.bg-\[\#0B1F3A\],
+.dark a.bg-blue-700,
+.dark button[type="submit"]:not(.btn-cancel):not(.btn-secondary):not(.bg-red-700):not(.bg-red-600) {
+  background-color: #0FA3A3 !important;
+  color: #081629 !important;
+  font-weight: 600 !important;
+}
+
+.dark button.bg-\[\#0B1F3A\]:hover,
+.dark button.bg-blue-700:hover,
+.dark a.bg-\[\#0B1F3A\]:hover,
+.dark a.bg-blue-700:hover,
+.dark button[type="submit"]:not(.btn-cancel):not(.btn-secondary):not(.bg-red-700):not(.bg-red-600):hover {
+  background-color: #0B8A8A !important;
+  color: #081629 !important;
+}
+
+/* Secondary buttons: light border on a transparent background */
+.dark button.bg-white,
+.dark a.bg-white {
+  background-color: transparent !important;
+  border-color: #23304A !important;
+  color: #E6EDF7 !important;
+}
+
+.dark button.bg-white:hover,
+.dark a.bg-white:hover {
+  background-color: #16213A !important;
+  color: #FFFFFF !important;
+}
+
+/* Preserve danger buttons */
+.dark button.bg-red-700,
+.dark button.bg-red-600 {
+  background-color: #E5675F !important;
+  color: #FFFFFF !important;
+}
+.dark button.bg-red-700:hover,
+.dark button.bg-red-600:hover {
+  background-color: #D34B43 !important;
+}
+
+/* Status colours on dark:
+   success #4CC38A on #11291F
+   warning #E0A93B on #2B2210
+   danger #E5675F on #2D1615
+   info #5C9BE0 on #12233A */
+.dark .text-\[\#1F9D6B\] { color: #4CC38A !important; }
+.dark .bg-\[\#E7F6EF\] { background-color: #11291F !important; }
+.dark .border-\[\#BCE8D3\] { border-color: #1B4533 !important; }
+
+.dark .text-\[\#C98A0B\] { color: #E0A93B !important; }
+.dark .bg-\[\#FDF4E0\] { background-color: #2B2210 !important; }
+.dark .border-\[\#F6DEAA\] { border-color: #4D3C18 !important; }
+
+.dark .text-\[\#C2413B\] { color: #E5675F !important; }
+.dark .bg-\[\#FBEAE9\] { background-color: #2D1615 !important; }
+.dark .border-\[\#F4C5C2\] { border-color: #522725 !important; }
+
+.dark .text-\[\#2F6FB0\] { color: #5C9BE0 !important; }
+.dark .bg-\[\#E8F0FA\] { background-color: #12233A !important; }
+.dark .border-\[\#BFD7F2\] { border-color: #1E3A5F !important; }
+
+.dark .text-\[\#5B6B7F\].bg-\[\#F5F8FB\] {
+  color: #9AA9BF !important;
+  background-color: #16213A !important;
+  border-color: #23304A !important;
+}
+
+/* Tables in Dark Mode:
+   header row #16213A, row dividers #23304A, hover slightly lighter */
+.dark table th,
+.dark thead,
+.dark thead tr {
+  background-color: #16213A !important;
+  color: #E6EDF7 !important;
+  border-color: #23304A !important;
+}
+
+.dark table td,
+.dark tbody tr {
+  border-color: #23304A !important;
+}
+
+.dark tbody tr:hover {
+  background-color: #16213A !important;
+}
+
+/* Inputs in Dark Mode:
+   dark fills with light borders and a teal focus ring */
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  background-color: #111A2C !important;
+  border-color: #23304A !important;
+  color: #E6EDF7 !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #6C7D93 !important;
+}
+
+.dark input:focus-visible,
+.dark select:focus-visible,
+.dark textarea:focus-visible {
+  border-color: #0FA3A3 !important;
+  box-shadow: 0 0 0 2px rgba(15, 163, 163, 0.35) !important;
+}
+
+/* Shadows become subtle borders in Dark Mode */
+.dark .shadow-sm,
+.dark .shadow,
+.dark .shadow-md,
+.dark .shadow-lg,
+.dark .shadow-soft,
+.dark .shadow-xl,
+.dark .shadow-2xl {
+  box-shadow: 0 0 0 1px #23304A !important;
+}
+
+/* Modals & Dialogs on Dark */
+.dark [role="dialog"] {
+  background-color: #16213A !important;
+  border-color: #23304A !important;
+  box-shadow: 0 0 0 1px #23304A, 0 20px 40px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Fixed Sidebar stays dark navy (#081629) */
+aside,
+aside.bg-\[\#0B1F3A\],
+.dark aside,
+.dark aside.bg-\[\#0B1F3A\],
+.dark aside.bg-\[\#081629\] {
+  background-color: #081629 !important;
+  border-color: #12294A !important;
+}
+
+.dark aside header,
+.dark aside .border-b {
+  border-color: #12294A !important;
+}
+
+/* Progress bar track */
+.dark .bg-slate-100.rounded-full,
+.dark .bg-slate-200.rounded-full {
+  background-color: #23304A !important;
+}
+
+/* Photos and uploaded images are never inverted or filtered */
+img,
+video,
+canvas,
+iframe,
+.dark img,
+.dark video,
+.dark canvas,
+.dark iframe {
+  filter: none !important;
 }
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

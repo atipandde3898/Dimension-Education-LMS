@@ -321,41 +321,72 @@ export function CandidateFeesView({
       ) : (
         <section
           aria-label="Fee summary"
-          className="space-y-3"
+          className="space-y-4"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="p-5 bg-white border border-slate-200 rounded-xl">
-              <p className="text-xs font-medium text-slate-500">Net Fee</p>
-              <p className="mt-2 font-mono text-2xl font-semibold text-slate-900 tabular-nums">
-                {formatInr(netFee)}
-              </p>
+          {/* Prominent Paid Amount Card with Progress Bar */}
+          <div className="p-6 bg-white border border-[#E3E9F0] rounded-xl shadow-soft space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#5B6B7F]">
+                  Total Paid
+                </p>
+                <div className="mt-1.5 flex items-baseline gap-3">
+                  <span className="font-display text-3xl sm:text-4xl font-extrabold text-[#0B1F3A] tabular-nums">
+                    {formatInr(paidAmount)}
+                  </span>
+                  <span className="text-xs text-[#5B6B7F]">
+                    of {formatInr(netFee)} total net fee ({netFee > 0 ? Math.min(100, Math.round((paidAmount / netFee) * 100)) : 0}%)
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-right sm:text-right">
+                <span className="text-xs text-[#5B6B7F]">Pending balance: </span>
+                <span className={`font-mono text-base font-bold tabular-nums ${pendingAmount > 0 ? 'text-[#C98A0B]' : 'text-[#0B1F3A]'}`}>
+                  {formatInr(pendingAmount)}
+                </span>
+              </div>
             </div>
 
-            <div className="p-5 bg-white border border-slate-200 rounded-xl">
-              <p className="text-xs font-medium text-slate-500">Paid</p>
-              <p className="mt-2 font-mono text-2xl font-semibold text-emerald-700 tabular-nums">
-                {formatInr(paidAmount)}
-              </p>
+            {/* Slim Teal Progress Bar */}
+            <div className="w-full bg-[#E6F6F6] rounded-full h-2.5 overflow-hidden">
+              <div
+                className="bg-[#0FA3A3] h-2.5 rounded-full transition-all duration-500"
+                style={{
+                  width: `${netFee > 0 ? Math.min(100, Math.round((paidAmount / netFee) * 100)) : 0}%`,
+                }}
+              />
             </div>
 
-            <div className="p-5 bg-white border border-slate-200 rounded-xl">
-              <p className="text-xs font-medium text-slate-500">Pending</p>
-              <p
-                className={`mt-2 font-mono text-2xl font-semibold tabular-nums ${
-                  pendingAmount > 0 ? 'text-amber-700' : 'text-slate-900'
-                }`}
-              >
-                {formatInr(pendingAmount)}
-              </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              <div className="p-3 bg-[#F5F8FB] border border-[#E3E9F0] rounded-lg">
+                <p className="text-[11px] font-medium text-[#5B6B7F]">Total Net Fee</p>
+                <p className="mt-1 font-mono text-sm font-bold text-[#0B1F3A] tabular-nums">
+                  {formatInr(netFee)}
+                </p>
+              </div>
+
+              <div className="p-3 bg-[#E7F6EF] border border-[#1F9D6B]/20 rounded-lg">
+                <p className="text-[11px] font-medium text-[#1F9D6B]">Confirmed Paid</p>
+                <p className="mt-1 font-mono text-sm font-bold text-[#1F9D6B] tabular-nums">
+                  {formatInr(paidAmount)}
+                </p>
+              </div>
+
+              <div className="p-3 bg-[#FDF4E0] border border-[#C98A0B]/20 rounded-lg">
+                <p className="text-[11px] font-medium text-[#C98A0B]">Pending Collection</p>
+                <p className="mt-1 font-mono text-sm font-bold text-[#C98A0B] tabular-nums">
+                  {formatInr(pendingAmount)}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="px-4 py-3 bg-slate-100/80 border border-slate-200 rounded-lg flex items-start gap-2.5 text-xs text-slate-700">
-            <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+          <div className="px-4 py-3 bg-[#F5F8FB] border border-[#E3E9F0] rounded-lg flex items-start gap-2.5 text-xs text-[#5B6B7F]">
+            <Info className="w-4 h-4 text-[#0FA3A3] shrink-0 mt-0.5" />
             <span>
-              Pending fees count only confirmed payments. Any pending payments
-              you submit are not counted toward Paid or deducted from Pending
-              until the institute confirms them.
+              Pending fees count only confirmed payments. Any payments you submit
+              are reviewed by the institute administration before being credited to your balance.
             </span>
           </div>
         </section>

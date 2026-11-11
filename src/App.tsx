@@ -34,8 +34,10 @@ import { ErrorState } from './components/ui/States';
 import { envCheck, supabase } from './lib/supabase';
 import type { Profile } from './types/database';
 import { formatDbError, resolvePortalArea } from './utils/domain';
+import { useTheme } from './utils/theme';
 
 export default function App() {
+  useTheme();
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(envCheck.valid);
   const [profile, setProfile] = useState<Profile | null>(null);

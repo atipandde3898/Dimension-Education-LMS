@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { formatDbError, validatePasswordRules } from '../utils/domain';
+import { BrandLogo } from './ui/BrandLogo';
 
 interface ResetPasswordScreenProps {
   onComplete: () => void;
@@ -106,10 +107,10 @@ export function ResetPasswordScreen({
     <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl p-8 shadow-sm">
         <div className="mb-6">
-          <p className="text-xs font-semibold text-blue-700 tracking-tight">
-            CohortDesk
-          </p>
-          <h1 className="mt-1.5 text-2xl font-semibold text-slate-900 tracking-tight">
+          <div className="mb-3">
+            <BrandLogo variant="light" size="sm" />
+          </div>
+          <h1 className="mt-1.5 text-2xl font-bold font-display text-[#0B1F3A] tracking-tight">
             Set New Password
           </h1>
           <p className="mt-1 text-sm text-slate-500">

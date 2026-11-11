@@ -3,17 +3,36 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CohortDesk — Candidate &amp; Batch Management</title>
-    <meta name="description" content="Candidate onboarding, batch scheduling, SME assignment, and placement tracking portal for training institutes." />
-    <meta property="og:title" content="CohortDesk — Candidate &amp; Batch Management" />
-    <meta property="og:description" content="Candidate onboarding, batch scheduling, SME assignment, and placement tracking portal for training institutes." />
+    <title>Dimension Education</title>
+    <meta name="description" content="Dimension Education — Candidate onboarding, batch scheduling, SME assignment, and placement tracking portal." />
+    <meta property="og:title" content="Dimension Education" />
+    <meta property="og:description" content="Dimension Education — Candidate onboarding, batch scheduling, SME assignment, and placement tracking portal." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('de_theme');
+          var setting = saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
+          var isDark = setting === 'dark' || (setting === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+            root.setAttribute('data-theme', 'dark');
+            root.style.colorScheme = 'dark';
+          } else {
+            root.classList.remove('dark');
+            root.setAttribute('data-theme', 'light');
+            root.style.colorScheme = 'light';
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-blue-100 selection:text-blue-900">
+  <body class="bg-[#F5F8FB] dark:bg-[#0B1220] text-[#0F1B2D] dark:text-[#E6EDF7] font-sans antialiased selection:bg-[#E6F6F6] selection:text-[#0B7C7C] dark:selection:bg-[#16213A] dark:selection:text-[#2CC4C4]">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

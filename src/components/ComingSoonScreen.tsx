@@ -1,5 +1,6 @@
 import { LogOut } from 'lucide-react';
 import type { Profile } from '../types/database';
+import { BrandLogo } from './ui/BrandLogo';
 
 interface ComingSoonScreenProps {
   profile: Profile | null;
@@ -35,12 +36,10 @@ export function ComingSoonScreen({
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="flex items-center justify-between gap-8 px-6 py-4 bg-white border-b border-slate-200">
-        <span className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0">
-          CohortDesk
-        </span>
+      <header className="flex items-center justify-between gap-8 px-6 py-4 bg-white border-b border-[#E3E9F0]">
+        <BrandLogo variant="light" size="sm" />
 
-        <div className="text-xs text-slate-500 truncate">
+        <div className="text-xs text-[#5B6B7F] truncate">
           {profile?.email || userEmail || ''}
         </div>
       </header>
