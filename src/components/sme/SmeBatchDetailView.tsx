@@ -22,6 +22,7 @@ import {
   buildTimetableSlotPayload,
   DAYS_OF_WEEK,
   filterAndSortRows,
+  formatCandidateStatusLabel,
   formatDate,
   formatDbError,
   formatDurationMinutes,
@@ -55,9 +56,9 @@ interface SmeBatchDetailViewProps {
 }
 
 const CANDIDATE_STATUS_STYLES: Record<SmeBatchCandidate['status'], string> = {
-  onboarding: 'text-amber-700',
-  active: 'text-emerald-700',
-  completed: 'text-blue-700',
+  enrolled: 'text-amber-700',
+  in_training: 'text-emerald-700',
+  certified: 'text-blue-700',
   dropped: 'text-red-700',
 };
 
@@ -780,11 +781,11 @@ export function SmeBatchDetailView({
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span
-                            className={`text-xs font-medium capitalize ${
+                            className={`text-xs font-medium ${
                               CANDIDATE_STATUS_STYLES[cand.status]
                             }`}
                           >
-                            {cand.status}
+                            {formatCandidateStatusLabel(cand.status)}
                           </span>
                         </td>
                       </tr>
@@ -809,11 +810,11 @@ export function SmeBatchDetailView({
                       </p>
                     </div>
                     <span
-                      className={`text-xs font-medium capitalize shrink-0 ${
+                      className={`text-xs font-medium shrink-0 ${
                         CANDIDATE_STATUS_STYLES[cand.status]
                       }`}
                     >
-                      {cand.status}
+                      {formatCandidateStatusLabel(cand.status)}
                     </span>
                   </div>
                 ))}

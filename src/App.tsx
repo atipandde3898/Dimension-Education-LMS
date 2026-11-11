@@ -23,10 +23,12 @@ import { ReportsView } from './components/admin/ReportsView';
 import { StaffView } from './components/admin/StaffView';
 import { AdminTicketDetailView } from './components/admin/AdminTicketDetailView';
 import { AdminTicketsView } from './components/admin/AdminTicketsView';
+import { AdminPlacementOpportunitiesView } from './components/admin/AdminPlacementOpportunitiesView';
 import { CandidatePortal } from './components/candidate/CandidatePortal';
 import { ComingSoonScreen } from './components/ComingSoonScreen';
 import { CounsellorPortal } from './components/counsellor/CounsellorPortal';
 import { LoginScreen } from './components/LoginScreen';
+import { PlacementPortal } from './components/placement/PlacementPortal';
 import { ResetPasswordScreen } from './components/ResetPasswordScreen';
 import { SetupScreen } from './components/SetupScreen';
 import { SmePortal } from './components/sme/SmePortal';
@@ -68,6 +70,12 @@ export default function App() {
   const [selectedTicketCode, setSelectedTicketCode] = useState<string | null>(
     null,
   );
+  const [selectedOpportunityId, setSelectedOpportunityId] = useState<
+    string | null
+  >(null);
+  const [selectedOpportunityLabel, setSelectedOpportunityLabel] = useState<
+    string | null
+  >(null);
   const [openTicketsCount, setOpenTicketsCount] = useState<number>(0);
 
   const loadOpenTicketsCount = useCallback(async () => {
@@ -155,6 +163,8 @@ export default function App() {
     setSelectedCandidateId(null);
     setSelectedTicketId(null);
     setSelectedTicketCode(null);
+    setSelectedOpportunityId(null);
+    setSelectedOpportunityLabel(null);
     setActiveSection('dashboard');
   };
 
@@ -167,6 +177,8 @@ export default function App() {
       setSelectedCandidateCode(null);
       setSelectedTicketId(null);
       setSelectedTicketCode(null);
+      setSelectedOpportunityId(null);
+      setSelectedOpportunityLabel(null);
       if (section === 'tickets' || section === 'dashboard') {
         void loadOpenTicketsCount();
       }
@@ -180,6 +192,8 @@ export default function App() {
     setSelectedCandidateCode(null);
     setSelectedTicketId(null);
     setSelectedTicketCode(null);
+    setSelectedOpportunityId(null);
+    setSelectedOpportunityLabel(null);
     setSelectedBatchCode(null);
     setSelectedBatchId(batchId);
   }, []);
@@ -190,6 +204,8 @@ export default function App() {
     setSelectedBatchCode(null);
     setSelectedTicketId(null);
     setSelectedTicketCode(null);
+    setSelectedOpportunityId(null);
+    setSelectedOpportunityLabel(null);
     setSelectedCandidateCode(null);
     setSelectedCandidateId(candidateId);
   }, []);
@@ -200,6 +216,8 @@ export default function App() {
     setSelectedBatchCode(null);
     setSelectedCandidateId(null);
     setSelectedCandidateCode(null);
+    setSelectedOpportunityId(null);
+    setSelectedOpportunityLabel(null);
     setSelectedTicketCode(null);
     setSelectedTicketId(ticketId);
   }, []);
@@ -213,6 +231,21 @@ export default function App() {
     }
     if (activeSection === 'placement') {
       return [{ label: 'Placement Team' }];
+    }
+    if (activeSection === 'placement_opportunities') {
+      if (selectedOpportunityId) {
+        return [
+          {
+            label: 'Placement',
+            onClick: () => {
+              setSelectedOpportunityId(null);
+              setSelectedOpportunityLabel(null);
+            },
+          },
+          { label: selectedOpportunityLabel ?? 'Opportunity Details' },
+        ];
+      }
+      return [{ label: 'Placement' }];
     }
     if (activeSection === 'staff') {
       return [{ label: 'Staff' }];
@@ -278,6 +311,8 @@ export default function App() {
     selectedCandidateCode,
     selectedTicketId,
     selectedTicketCode,
+    selectedOpportunityId,
+    selectedOpportunityLabel,
     loadOpenTicketsCount,
   ]);
 
@@ -388,6 +423,16 @@ export default function App() {
     );
   }
 
+  if (portalArea === 'placement' && profile) {
+    return (
+      <PlacementPortal
+        profile={profile}
+        onLogout={handleLogout}
+        loggingOut={loggingOut}
+      />
+    );
+  }
+
   if (portalArea !== 'admin' || !profile) {
     return (
       <ComingSoonScreen
@@ -397,7 +442,8 @@ export default function App() {
           portalArea === 'admin' ||
           portalArea === 'candidate' ||
           portalArea === 'sme' ||
-          portalArea === 'counsellor'
+          portalArea === 'counsellor' ||
+          portalArea === 'placement'
             ? 'missing_profile'
             : portalArea
         }
@@ -429,6 +475,17 @@ export default function App() {
       )}
 
       {activeSection === 'placement' && <PlacementTeamView />}
+
+      {activeSection === 'placement_opportunities' && (
+        <AdminPlacementOpportunitiesView
+          selectedOpportunityId={selectedOpportunityId}
+          onSelectOpportunity={(id, label) => {
+            setSelectedOpportunityId(id);
+            setSelectedOpportunityLabel(label ?? null);
+          }}
+          onSelectCandidate={handleOpenCandidate}
+        />
+      )}
 
       {activeSection === 'staff' && (
         <StaffView

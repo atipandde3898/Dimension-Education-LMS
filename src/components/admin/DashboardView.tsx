@@ -44,7 +44,7 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
       supabase
         .from('v_dashboard')
         .select(
-          'total_candidates, onboarding, active, total_pending_fees, overdue_installments, handed_over, open_tickets',
+          'total_candidates, enrolled, in_training, certified, total_pending_fees, overdue_installments, handed_over, open_tickets',
         )
         .maybeSingle(),
       supabase
@@ -111,8 +111,9 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
   const metrics = stats ?? normalizeDashboardStats(null);
   const isEmptyInstitute =
     metrics.total_candidates === 0 &&
-    metrics.onboarding === 0 &&
-    metrics.active === 0;
+    metrics.enrolled === 0 &&
+    metrics.in_training === 0 &&
+    metrics.certified === 0;
 
   return (
     <div className="space-y-8">
@@ -154,24 +155,26 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
           </div>
           <div className="mt-4 flex items-center justify-between">
             <span className="text-xs text-[#5B6B7F]">
-              {metrics.active} active · {metrics.onboarding} onboarding
+              {metrics.enrolled} enrolled · {metrics.in_training} in training · {metrics.certified} certified
             </span>
             <div className="h-0.5 w-8 bg-[#0FA3A3] rounded-full" />
           </div>
         </div>
 
-        {/* Card 2: Active in Training */}
+        {/* Card 2: In Training */}
         <div className="p-5 bg-white border border-[#E3E9F0] rounded-xl shadow-soft flex flex-col justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-[#5B6B7F]">
-              Active in Training
+              In Training
             </p>
             <p className="mt-2 font-display text-3xl sm:text-4xl font-bold text-[#1F9D6B] tabular-nums">
-              {formatAmount(metrics.active)}
+              {formatAmount(metrics.in_training)}
             </p>
           </div>
           <div className="mt-4 flex items-center justify-between">
-            <span className="text-xs text-[#5B6B7F]">Attending scheduled batches</span>
+            <span className="text-xs text-[#5B6B7F]">
+              Attending scheduled batches · {metrics.certified} certified
+            </span>
             <div className="h-0.5 w-8 bg-[#0FA3A3] rounded-full" />
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ShieldCheck, User } from 'lucide-react';
 import type { CandidateOverview, Profile } from '../../types/database';
-import { getInitials } from '../../utils/domain';
+import { formatCandidateStatusLabel, getInitials } from '../../utils/domain';
 
 interface CandidateProfileViewProps {
   overview: CandidateOverview;
@@ -11,9 +11,9 @@ interface CandidateProfileViewProps {
 }
 
 const STATUS_TEXT_CLASS: Record<CandidateOverview['status'], string> = {
-  onboarding: 'text-amber-700 bg-amber-50 border-amber-200',
-  active: 'text-emerald-700 bg-emerald-50 border-emerald-200',
-  completed: 'text-blue-700 bg-blue-50 border-blue-200',
+  enrolled: 'text-amber-700 bg-amber-50 border-amber-200',
+  in_training: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  certified: 'text-blue-700 bg-blue-50 border-blue-200',
   dropped: 'text-red-700 bg-red-50 border-red-200',
 };
 
@@ -70,7 +70,7 @@ export function CandidateProfileView({
                 STATUS_TEXT_CLASS[overview.status]
               }`}
             >
-              {overview.status}
+              {formatCandidateStatusLabel(overview.status)}
             </span>
           </div>
         </div>
@@ -107,8 +107,8 @@ export function CandidateProfileView({
 
             <div>
               <dt className="text-xs text-slate-500 font-medium">Enrollment Status</dt>
-              <dd className="mt-1 font-medium capitalize text-slate-900">
-                {overview.status}
+              <dd className="mt-1 font-medium text-slate-900">
+                {formatCandidateStatusLabel(overview.status)}
               </dd>
             </div>
 

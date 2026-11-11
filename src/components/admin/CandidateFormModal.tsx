@@ -9,6 +9,7 @@ import type {
   Program,
 } from '../../types/database';
 import {
+  CANDIDATE_STATUS_OPTIONS,
   buildCandidateCreatePayload,
   buildCandidateUpdatePayload,
   filterBatchesByModule,
@@ -65,7 +66,7 @@ export function CandidateFormModal({
   const [moduleId, setModuleId] = useState('');
   const [counsellorId, setCounsellorId] = useState('');
   const [batchId, setBatchId] = useState('');
-  const [status, setStatus] = useState<Candidate['status']>('onboarding');
+  const [status, setStatus] = useState<Candidate['status']>('enrolled');
   const [profileId, setProfileId] = useState<string | null>(null);
 
   const [confirmDropOpen, setConfirmDropOpen] = useState(false);
@@ -156,7 +157,7 @@ export function CandidateFormModal({
         setModuleId(firstMod?.id ?? '');
         setCounsellorId(firstCoun?.id ?? '');
         setBatchId('');
-        setStatus('onboarding');
+        setStatus('enrolled');
       }
 
       setLoadingOptions(false);
@@ -571,10 +572,11 @@ export function CandidateFormModal({
                   }
                   className="w-full pl-3.5 pr-9 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-blue-600"
                 >
-                  <option value="onboarding">Onboarding</option>
-                  <option value="active">Active</option>
-                  <option value="completed">Completed</option>
-                  <option value="dropped">Dropped</option>
+                  {CANDIDATE_STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}

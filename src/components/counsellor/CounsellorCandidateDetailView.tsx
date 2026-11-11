@@ -12,6 +12,7 @@ import type {
 import {
   DOC_TYPE_LABELS,
   REQUIRED_DOC_TYPES,
+  formatCandidateStatusLabel,
   formatDateDdMmmYyyy,
   formatDbError,
   formatHandoverStatusText,
@@ -28,9 +29,9 @@ interface CounsellorCandidateDetailViewProps {
 }
 
 const STATUS_STYLES: Record<CandidateOverview['status'], string> = {
-  onboarding: 'text-amber-700',
-  active: 'text-emerald-700',
-  completed: 'text-blue-700',
+  enrolled: 'text-amber-700',
+  in_training: 'text-emerald-700',
+  certified: 'text-blue-700',
   dropped: 'text-red-700',
 };
 
@@ -154,11 +155,11 @@ export function CounsellorCandidateDetailView({
                 ·
               </span>
               <span
-                className={`font-medium capitalize ${
+                className={`font-medium ${
                   STATUS_STYLES[overview.status]
                 }`}
               >
-                {overview.status}
+                {formatCandidateStatusLabel(overview.status)}
               </span>
             </div>
 

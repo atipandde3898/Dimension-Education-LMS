@@ -17,6 +17,7 @@ import {
   buildPlacementHandoverPayload,
   buildPlacementReportRows,
   buildReportFilename,
+  buildSendOpportunityFeedback,
   buildSessionPayload,
   buildTicketCreatePayload,
   buildTicketMessagePayload,
@@ -24,17 +25,33 @@ import {
   computeCounsellorPortfolioMetrics,
   computeInstallmentMismatch,
   computeOnboardingProgress,
+  computeOpportunityCounts,
+  computeOpportunityStatus,
+  computePlacementDashboardSummary,
+  filterAndSortPlacementCandidates,
+  formatCandidateStatusLabel,
   formatConsentStatusLabel,
+  formatCtcLakhs,
+  formatPackageRangeInr,
   formatPhotoStatusLabel,
+  formatPipelineStageLabel,
+  formatResponseStateLabel,
+  formatTimeLeft,
   getInitials,
   isCandidatePortalBlocked,
   isMandatoryOnboardingIncomplete,
+  isOpportunityLive,
   computeTotalSessionHours,
   filterAndSortRows,
   formatTicketDateTime,
   getTicketCategoryLabel,
   getTicketStatusLabel,
+  validateAndBuildCvUpload,
+  validateAndBuildEducationPayload,
+  validateAndBuildJdUpload,
+  validateAndBuildOpportunityInsert,
   validateAndBuildTicketAttachmentUpload,
+  validateAndBuildWorkPayload,
   filterBatchesByModule,
   findNextDueInstallment,
   formatAmount,
@@ -61,13 +78,33 @@ import {
   validateAndBuildPaymentProofUpload,
   validatePasswordRules,
   validateSupabaseEnv,
+  countUnansweredCandidateOpportunities,
+  formatCandidateClosingCountdown,
+  formatCandidatePackageRangeInr,
+  isCandidateOpportunityApplyBlocked,
+  isCandidateOpportunityLive,
+  sortCandidateOpportunitiesSoonestFirst,
+  APPLICATION_PROGRESS_STEPS,
+  formatCandidateApplicationStatus,
+  getMostRecentUpdatedApplication,
+  sortCandidateApplicationsNewestFirst,
 } from './domain';
+import {
+  INTERESTED_CANDIDATES_EXCEL_HEADERS,
+  buildCandidatePdfSheetFilename,
+  buildInterestedCandidatesExcelRows,
+  buildInterestedExcelFilename,
+  buildInterestedZipFilename,
+} from './placementExportPure';
 import { createReportWorkbook } from './excel';
 import * as XLSX from 'xlsx';
 import type {
   Batch,
+  CandidateApplication,
   CandidateOverview,
+  CandidateProfileFull,
   InstallmentStatus,
+  OpportunityResponse,
   TimetableSlot,
 } from '../types/database';
 
@@ -242,7 +279,7 @@ test('candidate batch and module rules enforce module match and lock once batch 
       module_id: 'mod-2',
       batch_id: 'batch-m2',
       counsellor_id: 'coun-1',
-      status: 'active',
+      status: 'in_training',
     },
     sampleBatches,
   );
@@ -259,7 +296,7 @@ test('candidate batch and module rules enforce module match and lock once batch 
       module_id: 'mod-1',
       batch_id: 'batch-m1',
       counsellor_id: 'coun-1',
-      status: 'active',
+      status: 'in_training',
     },
     sampleBatches,
   );
@@ -267,7 +304,7 @@ test('candidate batch and module rules enforce module match and lock once batch 
   if (allowedLockedUpdate.ok) {
     assert.equal('module_id' in allowedLockedUpdate.payload, false);
     assert.equal('batch_id' in allowedLockedUpdate.payload, false);
-    assert.equal(allowedLockedUpdate.payload.status, 'active');
+    assert.equal(allowedLockedUpdate.payload.status, 'in_training');
   }
 });
 
@@ -276,10 +313,19 @@ test('resolvePortalArea, normalizeDashboardStats, formatAmount, formatInr, and f
   assert.equal(resolvePortalArea({ role: 'sme', active: true }), 'sme');
   assert.equal(resolvePortalArea({ role: 'counsellor', active: true }), 'counsellor');
   assert.equal(resolvePortalArea({ role: 'candidate', active: true }), 'candidate');
+  assert.equal(resolvePortalArea({ role: 'placement', active: true }), 'placement');
   assert.equal(resolvePortalArea({ role: 'admin', active: false }), 'inactive');
+
+  assert.equal(formatCandidateStatusLabel('enrolled'), 'Enrolled');
+  assert.equal(formatCandidateStatusLabel('in_training'), 'In training');
+  assert.equal(formatCandidateStatusLabel('certified'), 'Certified');
+  assert.equal(formatCandidateStatusLabel('dropped'), 'Dropped');
 
   const stats = normalizeDashboardStats(null);
   assert.equal(stats.total_candidates, 0);
+  assert.equal(stats.enrolled, 0);
+  assert.equal(stats.in_training, 0);
+  assert.equal(stats.certified, 0);
   assert.equal(formatAmount(48500), '48,500');
   assert.equal(formatAmount(125000), '1,25,000');
 
@@ -802,7 +848,7 @@ test('counsellor portfolio metrics and admin Excel reports (numeric money, DD-MM
       full_name: 'Ananya Verma',
       email: 'ananya@example.com',
       phone: '9876500001',
-      status: 'active',
+      status: 'in_training',
       program: 'Data Engineering PG',
       module: 'DE-101 — Spark & Kafka',
       batch_code: 'BAT-01',
@@ -821,7 +867,7 @@ test('counsellor portfolio metrics and admin Excel reports (numeric money, DD-MM
       full_name: 'Vikram Nair',
       email: 'vikram@example.com',
       phone: '9876500002',
-      status: 'completed',
+      status: 'certified',
       program: 'Cloud Architecture',
       module: 'CA-201 — Kubernetes',
       batch_code: 'BAT-02',
@@ -1281,31 +1327,60 @@ test('consent acceptance payloads building enforces signature rules and omits ac
   }
 });
 
-test('isMandatoryOnboardingIncomplete accurately checks profile photo and consent progress', () => {
+test('isMandatoryOnboardingIncomplete requires photo, consents, education, work, and CV', () => {
+  const photoDoc = {
+    id: '1',
+    candidate_id: 'c1',
+    doc_type: 'profile_photo' as const,
+    storage_path: '',
+    status: 'pending' as const,
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    uploaded_at: null,
+  };
+
   // Missing photo and missing consent
   assert.equal(
     isMandatoryOnboardingIncomplete({
       photo_status: 'missing',
       consents_accepted: 0,
       consents_required: 2,
+      education_done: false,
+      work_done: false,
+      cv_done: false,
     }),
     true,
   );
 
-  // Photo uploaded (pending) but consent not accepted yet
+  // Photo and consent done, but missing education/work/cv
   assert.equal(
     isMandatoryOnboardingIncomplete(
-      { photo_status: 'pending', consents_accepted: 1, consents_required: 2 },
-      [{ id: '1', candidate_id: 'c1', doc_type: 'profile_photo', storage_path: '', status: 'pending', review_note: null, reviewed_by: null, reviewed_at: null, uploaded_at: null }],
+      {
+        photo_status: 'pending',
+        consents_accepted: 2,
+        consents_required: 2,
+        education_done: true,
+        work_done: true,
+        cv_done: false,
+      },
+      [photoDoc],
     ),
     true,
   );
 
-  // Both photo uploaded (any status) and all consents accepted
+  // All 5 mandatory gates complete
   assert.equal(
     isMandatoryOnboardingIncomplete(
-      { photo_status: 'pending', consents_accepted: 2, consents_required: 2 },
-      [{ id: '1', candidate_id: 'c1', doc_type: 'profile_photo', storage_path: '', status: 'pending', review_note: null, reviewed_by: null, reviewed_at: null, uploaded_at: null }],
+      {
+        photo_status: 'pending',
+        consents_accepted: 2,
+        consents_required: 2,
+        education_done: true,
+        work_done: true,
+        cv_done: true,
+      },
+      [photoDoc],
     ),
     false,
   );
@@ -1322,19 +1397,832 @@ test('isMandatoryOnboardingIncomplete accurately checks profile photo and consen
   assert.equal(formatConsentStatusLabel(1, 2), 'Pending');
 });
 
-test('isCandidatePortalBlocked allows onboarding, active, and completed while blocking inactive profiles and dropped candidates', () => {
+test('isCandidatePortalBlocked allows enrolled, in_training, and certified while blocking inactive profiles and dropped candidates', () => {
   // Allowed candidate statuses when profile.active is true
-  assert.equal(isCandidatePortalBlocked(true, 'onboarding'), false);
-  assert.equal(isCandidatePortalBlocked(true, 'active'), false);
-  assert.equal(isCandidatePortalBlocked(true, 'completed'), false);
+  assert.equal(isCandidatePortalBlocked(true, 'enrolled'), false);
+  assert.equal(isCandidatePortalBlocked(true, 'in_training'), false);
+  assert.equal(isCandidatePortalBlocked(true, 'certified'), false);
   assert.equal(isCandidatePortalBlocked(true, null), false);
 
   // Blocked when candidate status is dropped
   assert.equal(isCandidatePortalBlocked(true, 'dropped'), true);
 
   // Blocked when profile.active is false regardless of candidate status
-  assert.equal(isCandidatePortalBlocked(false, 'onboarding'), true);
-  assert.equal(isCandidatePortalBlocked(false, 'active'), true);
-  assert.equal(isCandidatePortalBlocked(false, 'completed'), true);
+  assert.equal(isCandidatePortalBlocked(false, 'enrolled'), true);
+  assert.equal(isCandidatePortalBlocked(false, 'in_training'), true);
+  assert.equal(isCandidatePortalBlocked(false, 'certified'), true);
   assert.equal(isCandidatePortalBlocked(false, 'dropped'), true);
 });
+
+test('validateAndBuildEducationPayload enforces diploma/graduation, HSC NA, year/percent bounds, and null clearing', () => {
+  const baseValid = {
+    ssc_year: '2016',
+    ssc_percent: '88.50',
+    hsc_na: false,
+    hsc_year: '2018',
+    hsc_percent: '84.25',
+    diploma_na: true,
+    diploma_stream: 'ShouldBeCleared',
+    diploma_year: '2019',
+    diploma_percent: '80',
+    graduation_na: false,
+    graduation_stream: 'Computer Science',
+    graduation_degree: 'B.Tech',
+    graduation_year: '2022',
+    graduation_percent: '79.4',
+    graduation_university: 'Pune University',
+    pg_na: true,
+    pg_stream: 'Data',
+    pg_degree: 'M.Tech',
+    pg_year: '2024',
+    pg_percent: '85',
+    pg_university: 'IIT',
+  };
+
+  // Valid with Diploma NA and PG NA: clears NA sections to null
+  const validRes = validateAndBuildEducationPayload('cand-1', baseValid, 2026);
+  assert.equal(validRes.ok, true);
+  if (validRes.ok) {
+    assert.equal(validRes.payload.ssc_year, 2016);
+    assert.equal(validRes.payload.ssc_percent, 88.5);
+    assert.equal(validRes.payload.diploma_na, true);
+    assert.equal(validRes.payload.diploma_stream, null);
+    assert.equal(validRes.payload.diploma_year, null);
+    assert.equal(validRes.payload.diploma_percent, null);
+    assert.equal(validRes.payload.pg_na, true);
+    assert.equal(validRes.payload.pg_university, null);
+  }
+
+  // Fails when both Diploma and Graduation are NA
+  const bothNa = validateAndBuildEducationPayload(
+    'cand-1',
+    { ...baseValid, diploma_na: true, graduation_na: true },
+    2026,
+  );
+  assert.equal(bothNa.ok, false);
+
+  // Fails when HSC is NA without Diploma entered
+  const hscNaNoDip = validateAndBuildEducationPayload(
+    'cand-1',
+    { ...baseValid, hsc_na: true, diploma_na: true, graduation_na: false },
+    2026,
+  );
+  assert.equal(hscNaNoDip.ok, false);
+
+  // Succeeds when HSC is NA and Diploma IS entered
+  const hscNaWithDip = validateAndBuildEducationPayload(
+    'cand-1',
+    {
+      ...baseValid,
+      hsc_na: true,
+      diploma_na: false,
+      diploma_stream: 'Mechanical',
+      diploma_year: '2019',
+      diploma_percent: '82.15',
+      graduation_na: true,
+    },
+    2026,
+  );
+  assert.equal(hscNaWithDip.ok, true);
+  if (hscNaWithDip.ok) {
+    assert.equal(hscNaWithDip.payload.hsc_na, true);
+    assert.equal(hscNaWithDip.payload.hsc_year, null);
+    assert.equal(hscNaWithDip.payload.hsc_percent, null);
+    assert.equal(hscNaWithDip.payload.diploma_stream, 'Mechanical');
+  }
+
+  // Year bounds: < 1980 or > currentYear + 1 rejected
+  assert.equal(
+    validateAndBuildEducationPayload('cand-1', { ...baseValid, ssc_year: '1979' }, 2026).ok,
+    false,
+  );
+  assert.equal(
+    validateAndBuildEducationPayload('cand-1', { ...baseValid, ssc_year: '2028' }, 2026).ok,
+    false,
+  );
+  assert.equal(
+    validateAndBuildEducationPayload('cand-1', { ...baseValid, ssc_year: '2027' }, 2026).ok,
+    true,
+  );
+
+  // Percent bounds and max 2 decimals
+  assert.equal(
+    validateAndBuildEducationPayload('cand-1', { ...baseValid, ssc_percent: '100.01' }, 2026).ok,
+    false,
+  );
+  assert.equal(
+    validateAndBuildEducationPayload('cand-1', { ...baseValid, ssc_percent: '85.123' }, 2026).ok,
+    false,
+  );
+});
+
+test('validateAndBuildWorkPayload enforces fresher nulls and professional 0.5-step & total-exp bounds', () => {
+  // Fresher clears all numeric fields to null
+  const fresher = validateAndBuildWorkPayload('cand-1', {
+    work_type: 'fresher',
+    total_exp_years: '4',
+    sap_consultant_exp_years: '2',
+    sap_end_user_exp_years: '1',
+    relevant_domain_exp_years: '2',
+    current_ctc_lakhs: '6',
+    notice_period_months: '1',
+  });
+  assert.equal(fresher.ok, true);
+  if (fresher.ok) {
+    assert.equal(fresher.payload.work_type, 'fresher');
+    assert.equal(fresher.payload.total_exp_years, null);
+    assert.equal(fresher.payload.current_ctc_lakhs, null);
+    assert.equal(fresher.payload.notice_period_months, null);
+  }
+
+  // Valid working professional
+  const proValid = validateAndBuildWorkPayload('cand-1', {
+    work_type: 'professional',
+    total_exp_years: '4.5',
+    sap_consultant_exp_years: '1.5',
+    sap_end_user_exp_years: '2.0',
+    relevant_domain_exp_years: '4.5',
+    current_ctc_lakhs: '12.5',
+    notice_period_months: '2',
+  });
+  assert.equal(proValid.ok, true);
+  if (proValid.ok) {
+    assert.equal(proValid.payload.total_exp_years, 4.5);
+    assert.equal(proValid.payload.notice_period_months, 2);
+  }
+
+  // Rejects non-0.5 step
+  assert.equal(
+    validateAndBuildWorkPayload('cand-1', {
+      work_type: 'professional',
+      total_exp_years: '4.3',
+      sap_consultant_exp_years: '1',
+      sap_end_user_exp_years: '1',
+      relevant_domain_exp_years: '1',
+      current_ctc_lakhs: '10',
+      notice_period_months: '1',
+    }).ok,
+    false,
+  );
+
+  // Rejects sub-experience > total_exp_years
+  assert.equal(
+    validateAndBuildWorkPayload('cand-1', {
+      work_type: 'professional',
+      total_exp_years: '3',
+      sap_consultant_exp_years: '3.5',
+      sap_end_user_exp_years: '1',
+      relevant_domain_exp_years: '1',
+      current_ctc_lakhs: '10',
+      notice_period_months: '1',
+    }).ok,
+    false,
+  );
+
+  // Rejects notice_period_months > 12
+  assert.equal(
+    validateAndBuildWorkPayload('cand-1', {
+      work_type: 'professional',
+      total_exp_years: '3',
+      sap_consultant_exp_years: '1',
+      sap_end_user_exp_years: '1',
+      relevant_domain_exp_years: '1',
+      current_ctc_lakhs: '10',
+      notice_period_months: '13',
+    }).ok,
+    false,
+  );
+});
+
+test('validateAndBuildCvUpload accepts pdf, doc, docx up to 5 MB and builds timestamped path', () => {
+  const docx = validateAndBuildCvUpload(
+    'cand-10',
+    {
+      name: 'Rohan Resume 2026.docx',
+      size: 1024 * 800,
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    },
+    1700000000000,
+  );
+  assert.equal(docx.ok, true);
+  if (docx.ok) {
+    assert.equal(docx.ext, 'docx');
+    assert.equal(docx.fileName, 'Rohan Resume 2026.docx');
+    assert.equal(docx.storagePath, 'cand-10/cv/1700000000000-Rohan_Resume_2026.docx');
+  }
+
+  const doc = validateAndBuildCvUpload(
+    'cand-10',
+    { name: 'cv.doc', size: 1024, type: 'application/msword' },
+    1700000000001,
+  );
+  assert.equal(doc.ok, true);
+
+  // Rejects PNG and > 5 MB
+  assert.equal(
+    validateAndBuildCvUpload('cand-10', { name: 'photo.png', size: 1024, type: 'image/png' }).ok,
+    false,
+  );
+  assert.equal(
+    validateAndBuildCvUpload('cand-10', {
+      name: 'big.pdf',
+      size: 5 * 1024 * 1024 + 1,
+      type: 'application/pdf',
+    }).ok,
+    false,
+  );
+});
+
+test('placement opportunity creation validation omits forbidden fields and validates JD and package bounds', () => {
+  // JD upload validation
+  const jdOk = validateAndBuildJdUpload(
+    'opp-123',
+    {
+      name: 'SAP ABAP Developer JD.pdf',
+      size: 1024 * 450,
+      type: 'application/pdf',
+    },
+    1700000000000,
+  );
+  assert.equal(jdOk.ok, true);
+  if (jdOk.ok) {
+    assert.equal(
+      jdOk.storagePath,
+      'opp-123/1700000000000-SAP_ABAP_Developer_JD.pdf',
+    );
+  }
+
+  // Rejects oversize > 5 MB and unsupported PNG for JD
+  assert.equal(
+    validateAndBuildJdUpload('opp-123', {
+      name: 'jd.png',
+      size: 1024,
+      type: 'image/png',
+    }).ok,
+    false,
+  );
+  assert.equal(
+    validateAndBuildJdUpload('opp-123', {
+      name: 'huge.docx',
+      size: 5 * 1024 * 1024 + 1,
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }).ok,
+    false,
+  );
+
+  // Requires either description text or jdPath
+  const missingBoth = validateAndBuildOpportunityInsert({
+    id: 'opp-1',
+    company: 'Infosys',
+    jobTitle: 'SAP Consultant',
+    description: '   ',
+    jdPath: null,
+    packageMin: '',
+    packageMax: '',
+  });
+  assert.equal(missingBoth.ok, false);
+
+  // Rejects max < min
+  const badRange = validateAndBuildOpportunityInsert({
+    id: 'opp-1',
+    company: 'Infosys',
+    jobTitle: 'SAP Consultant',
+    description: 'Full-stack SAP S/4HANA role',
+    jdPath: null,
+    packageMin: '12',
+    packageMax: '8',
+  });
+  assert.equal(badRange.ok, false);
+
+  // Valid insert never emits created_by or cancelled
+  const validInsert = validateAndBuildOpportunityInsert({
+    id: 'opp-1',
+    company: ' Infosys Limited ',
+    jobTitle: ' SAP MM Consultant ',
+    description: ' Hiring for Bengaluru project ',
+    jdPath: 'opp-1/1700000000000-jd.pdf',
+    packageMin: '6.5',
+    packageMax: '10',
+  });
+  assert.equal(validInsert.ok, true);
+  if (validInsert.ok) {
+    assert.equal(validInsert.payload.company, 'Infosys Limited');
+    assert.equal(validInsert.payload.job_title, 'SAP MM Consultant');
+    assert.equal(validInsert.payload.package_min_lakhs, 6.5);
+    assert.equal(validInsert.payload.package_max_lakhs, 10);
+    assert.equal('created_by' in validInsert.payload, false);
+    assert.equal('cancelled' in validInsert.payload, false);
+  }
+
+  // Send opportunity feedback with skipped count
+  assert.deepEqual(buildSendOpportunityFeedback(5, 5), {
+    primary: 'Sent to 5 candidates',
+    skipped: null,
+  });
+  assert.deepEqual(buildSendOpportunityFeedback(3, 5), {
+    primary: 'Sent to 3 candidates',
+    skipped: '2 were skipped because they are not in training or certified.',
+  });
+});
+
+test('placement opportunity status, dashboard counts, formatting, and candidate filter/sort work accurately', () => {
+  const now = new Date('2026-11-10T10:00:00.000Z').getTime();
+  const futureExpiry = '2026-11-11T10:00:00.000Z';
+  const pastExpiry = '2026-11-09T10:00:00.000Z';
+
+  assert.equal(formatTimeLeft(futureExpiry, now), '1d left');
+  assert.equal(formatTimeLeft(pastExpiry, now), 'Expired');
+  assert.equal(
+    formatPackageRangeInr(6, 10.5),
+    '₹6 – ₹10.5 lakhs per annum',
+  );
+  assert.equal(formatPackageRangeInr(8, 8), '₹8 lakhs per annum');
+  assert.equal(formatCtcLakhs(12.5), '₹12.5 lakhs per annum');
+  assert.equal(formatPipelineStageLabel('offer_made'), 'Offer made');
+  assert.equal(formatResponseStateLabel('no_response'), 'No response');
+
+  const opps = [
+    { id: 'opp-live', cancelled: false },
+    { id: 'opp-closed', cancelled: false },
+    { id: 'opp-cancelled', cancelled: true },
+  ];
+  const responses: Array<
+    Pick<
+      OpportunityResponse,
+      'opportunity_id' | 'expires_at' | 'response_state' | 'pipeline_stage'
+    >
+  > = [
+    {
+      opportunity_id: 'opp-live',
+      expires_at: futureExpiry,
+      response_state: 'interested',
+      pipeline_stage: null,
+    },
+    {
+      opportunity_id: 'opp-live',
+      expires_at: futureExpiry,
+      response_state: 'waiting',
+      pipeline_stage: null,
+    },
+    {
+      opportunity_id: 'opp-live',
+      expires_at: futureExpiry,
+      response_state: 'interested',
+      pipeline_stage: 'shortlisted',
+    },
+    {
+      opportunity_id: 'opp-closed',
+      expires_at: pastExpiry,
+      response_state: 'no_response',
+      pipeline_stage: null,
+    },
+    {
+      opportunity_id: 'opp-cancelled',
+      expires_at: futureExpiry,
+      response_state: 'not_interested',
+      pipeline_stage: null,
+    },
+  ];
+
+  assert.equal(isOpportunityLive(opps[0], responses.slice(0, 3), now), true);
+  assert.equal(isOpportunityLive(opps[1], [responses[3]], now), false);
+  assert.equal(isOpportunityLive(opps[2], [responses[4]], now), false);
+
+  assert.equal(computeOpportunityStatus(opps[0], responses.slice(0, 3), now), 'Live');
+  assert.equal(computeOpportunityStatus(opps[1], [responses[3]], now), 'Closed');
+  assert.equal(computeOpportunityStatus(opps[2], [responses[4]], now), 'Cancelled');
+
+  const counts = computeOpportunityCounts(responses.slice(0, 3));
+  assert.deepEqual(counts, {
+    sent: 3,
+    interested: 2,
+    notInterested: 0,
+    waiting: 1,
+    noResponse: 0,
+  });
+
+  const summary = computePlacementDashboardSummary(14, opps, responses, now);
+  assert.equal(summary.candidatesVisible, 14);
+  assert.equal(summary.liveOpportunities, 1);
+  assert.equal(summary.waitingForDecision, 1);
+  assert.equal(summary.pipelineCounts.shortlisted, 1);
+  assert.equal(summary.pipelineCounts.interview, 0);
+
+  // Filter and sort placement candidates
+  const candidates: CandidateProfileFull[] = [
+    {
+      candidate_id: 'c1',
+      candidate_code: 'DE-101',
+      full_name: 'Aarav Rao',
+      email: 'aarav@example.com',
+      phone: '9876500001',
+      stage: 'in_training',
+      program: 'SAP S/4HANA',
+      module: 'MM',
+      batch_code: 'B-01',
+      ssc_year: 2016,
+      ssc_percent: 85,
+      hsc_na: false,
+      hsc_year: 2018,
+      hsc_percent: 80,
+      diploma_na: true,
+      diploma_stream: null,
+      diploma_year: null,
+      diploma_percent: null,
+      graduation_na: false,
+      graduation_stream: 'IT',
+      graduation_degree: 'B.Tech',
+      graduation_year: 2022,
+      graduation_percent: 78,
+      graduation_university: 'Pune University',
+      pg_na: true,
+      pg_stream: null,
+      pg_degree: null,
+      pg_year: null,
+      pg_percent: null,
+      pg_university: null,
+      work_type: 'professional',
+      total_exp_years: 3.5,
+      sap_consultant_exp_years: 1,
+      sap_end_user_exp_years: 1.5,
+      relevant_domain_exp_years: 2,
+      current_ctc_lakhs: 9.5,
+      notice_period_months: 1,
+      cv_path: 'c1/cv/1-cv.pdf',
+      cv_file_name: 'Aarav_CV.pdf',
+      photo_path: 'c1/profile_photo/profile_photo.jpg',
+    },
+    {
+      candidate_id: 'c2',
+      candidate_code: 'DE-102',
+      full_name: 'Meera Iyer',
+      email: 'meera@example.com',
+      phone: '9876500002',
+      stage: 'certified',
+      program: 'SAP S/4HANA',
+      module: 'FICO',
+      batch_code: 'B-02',
+      ssc_year: 2018,
+      ssc_percent: 90,
+      hsc_na: false,
+      hsc_year: 2020,
+      hsc_percent: 88,
+      diploma_na: true,
+      diploma_stream: null,
+      diploma_year: null,
+      diploma_percent: null,
+      graduation_na: false,
+      graduation_stream: 'Commerce',
+      graduation_degree: 'B.Com',
+      graduation_year: 2023,
+      graduation_percent: 82,
+      graduation_university: 'Mumbai University',
+      pg_na: true,
+      pg_stream: null,
+      pg_degree: null,
+      pg_year: null,
+      pg_percent: null,
+      pg_university: null,
+      work_type: 'fresher',
+      total_exp_years: null,
+      sap_consultant_exp_years: null,
+      sap_end_user_exp_years: null,
+      relevant_domain_exp_years: null,
+      current_ctc_lakhs: null,
+      notice_period_months: null,
+      cv_path: null,
+      cv_file_name: null,
+      photo_path: null,
+    },
+  ];
+
+  const inTrainingOnly = filterAndSortPlacementCandidates(
+    candidates,
+    { moduleFilter: 'all', stageFilter: 'in_training', search: '' },
+    { field: 'candidate_code', direction: 'asc' },
+  );
+  assert.equal(inTrainingOnly.length, 1);
+  assert.equal(inTrainingOnly[0].candidate_id, 'c1');
+
+  const bothByExpDesc = filterAndSortPlacementCandidates(
+    candidates,
+    { moduleFilter: 'all', stageFilter: 'both', search: '' },
+    { field: 'work_exp', direction: 'desc' },
+  );
+  assert.deepEqual(
+    bothByExpDesc.map((c) => c.candidate_id),
+    ['c1', 'c2'],
+  );
+});
+
+test('interested candidates Excel rows and PDF/ZIP filenames handle NA sections, dates, units, and omit sensitive fields', () => {
+  const profile: CandidateProfileFull = {
+    candidate_id: 'c1',
+    candidate_code: 'DE-101',
+    full_name: 'Aarav Rao',
+    email: 'aarav@example.com',
+    phone: '9876500001',
+    stage: 'in_training',
+    program: 'SAP S/4HANA',
+    module: 'MM',
+    batch_code: 'B-01',
+    ssc_year: 2016,
+    ssc_percent: 85,
+    hsc_na: false,
+    hsc_year: 2018,
+    hsc_percent: 80,
+    diploma_na: true,
+    diploma_stream: 'Ignored',
+    diploma_year: 2019,
+    diploma_percent: 70,
+    graduation_na: false,
+    graduation_stream: 'IT',
+    graduation_degree: 'B.Tech',
+    graduation_year: 2022,
+    graduation_percent: 78,
+    graduation_university: 'Pune University',
+    pg_na: true,
+    pg_stream: null,
+    pg_degree: null,
+    pg_year: null,
+    pg_percent: null,
+    pg_university: null,
+    work_type: 'professional',
+    total_exp_years: 3.5,
+    sap_consultant_exp_years: 1,
+    sap_end_user_exp_years: 1.5,
+    relevant_domain_exp_years: 2,
+    current_ctc_lakhs: 9.5,
+    notice_period_months: 1,
+    cv_path: 'c1/cv/1-cv.pdf',
+    cv_file_name: 'Aarav_CV.pdf',
+    photo_path: 'c1/profile_photo/profile_photo.jpg',
+  };
+
+  const resp: OpportunityResponse = {
+    recipient_id: 'rec-1',
+    opportunity_id: 'opp-1',
+    company: 'Infosys Ltd',
+    job_title: 'SAP MM Consultant',
+    candidate_id: 'c1',
+    candidate_code: 'DE-101',
+    full_name: 'Aarav Rao',
+    email: 'aarav@example.com',
+    phone: '9876500001',
+    module: 'MM',
+    stage: 'in_training',
+    sent_at: '2026-11-05T08:00:00Z',
+    expires_at: '2026-11-07T08:00:00Z',
+    response: 'interested',
+    responded_at: '2026-11-06T09:15:00Z',
+    pipeline_stage: 'shortlisted',
+    stage_note: null,
+    stage_updated_at: null,
+    response_state: 'interested',
+  };
+
+  const rows = buildInterestedCandidatesExcelRows(
+    [resp],
+    new Map([['c1', profile]]),
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]['Candidate Code'], 'DE-101');
+  assert.equal(rows[0]['Diploma Stream'], 'NA');
+  assert.equal(rows[0]['PG University'], 'NA');
+  assert.equal(rows[0]['Current CTC (lakhs)'], 9.5);
+  assert.equal(rows[0]['Notice Period (months)'], 1);
+  assert.equal(rows[0]['Response Date'], '06-Nov-2026');
+  assert.equal(rows[0]['Pipeline Stage'], 'Shortlisted');
+  for (const key of Object.keys(rows[0])) {
+    assert.equal(
+      INTERESTED_CANDIDATES_EXCEL_HEADERS.includes(
+        key as (typeof INTERESTED_CANDIDATES_EXCEL_HEADERS)[number],
+      ),
+      true,
+    );
+    assert.equal(/pan|fee|payment|installment|consent/i.test(key), false);
+  }
+
+  assert.equal(
+    buildCandidatePdfSheetFilename('DE-101', 'Aarav Rao'),
+    'DE-101-Aarav-Rao.pdf',
+  );
+  const sampleDate = '2026-11-10T10:00:00.000Z';
+  assert.equal(
+    buildInterestedZipFilename('Infosys Ltd', sampleDate),
+    'interested-infosys-ltd-10-Nov-2026.zip',
+  );
+  assert.equal(
+    buildInterestedExcelFilename('Infosys Ltd', sampleDate),
+    'interested-infosys-ltd-10-Nov-2026.xlsx',
+  );
+});
+
+test('candidate opportunities formatting, countdown urgency, sorting, and onboarding block helpers work accurately', () => {
+  // Package formatting ("₹ x to y lakhs per annum")
+  assert.equal(
+    formatCandidatePackageRangeInr(6, 10.5),
+    '₹ 6 to 10.5 lakhs per annum',
+  );
+  assert.equal(
+    formatCandidatePackageRangeInr(8, 8),
+    '₹ 8 lakhs per annum',
+  );
+  assert.equal(
+    formatCandidatePackageRangeInr(5, null),
+    'From ₹ 5 lakhs per annum',
+  );
+  assert.equal(
+    formatCandidatePackageRangeInr(null, 12),
+    'Up to ₹ 12 lakhs per annum',
+  );
+  assert.equal(formatCandidatePackageRangeInr(null, null), null);
+
+  // Countdown formatting ("Please answer within ...") + <2h amber urgency threshold
+  const now = new Date('2026-11-10T10:00:00.000Z').getTime();
+  const in5h12m = new Date(now + (5 * 60 + 12) * 60 * 1000).toISOString();
+  const countdownNormal = formatCandidateClosingCountdown(in5h12m, now);
+  assert.equal(countdownNormal.label, 'Please answer within 5 h 12 min');
+  assert.equal(countdownNormal.isUrgent, false);
+  assert.equal(countdownNormal.isExpired, false);
+
+  const in1h45m = new Date(now + (1 * 60 + 45) * 60 * 1000).toISOString();
+  const countdownUrgent = formatCandidateClosingCountdown(in1h45m, now);
+  assert.equal(countdownUrgent.label, 'Please answer within 1 h 45 min');
+  assert.equal(countdownUrgent.isUrgent, true);
+  assert.equal(countdownUrgent.isExpired, false);
+
+  const expiredIso = new Date(now - 60000).toISOString();
+  const expired = formatCandidateClosingCountdown(expiredIso, now);
+  assert.equal(expired.label, 'Closed');
+  assert.equal(expired.isExpired, true);
+
+  // Soonest closing sort & live unanswered count
+  const oppLate = {
+    recipient_id: 'r-late',
+    expires_at: in5h12m,
+  };
+  const oppSoon = {
+    recipient_id: 'r-soon',
+    expires_at: in1h45m,
+  };
+  const oppExpired = {
+    recipient_id: 'r-expired',
+    expires_at: expiredIso,
+  };
+
+  assert.deepEqual(
+    sortCandidateOpportunitiesSoonestFirst([oppLate, oppSoon]).map(
+      (o) => o.recipient_id,
+    ),
+    ['r-soon', 'r-late'],
+  );
+  assert.equal(
+    countUnansweredCandidateOpportunities([oppLate, oppSoon, oppExpired], now),
+    2,
+  );
+  assert.equal(isCandidateOpportunityLive(oppSoon, now), true);
+  assert.equal(isCandidateOpportunityLive(oppExpired, now), false);
+
+  // Onboarding gate for applying (requires education, work, CV)
+  assert.equal(
+    isCandidateOpportunityApplyBlocked({
+      education_done: true,
+      work_done: true,
+      cv_done: true,
+    }),
+    false,
+  );
+  assert.equal(
+    isCandidateOpportunityApplyBlocked({
+      education_done: true,
+      work_done: false,
+      cv_done: true,
+    }),
+    true,
+  );
+  assert.equal(
+    isCandidateOpportunityApplyBlocked(null, {
+      hasEducation: true,
+      hasWork: true,
+      hasCv: true,
+    }),
+    false,
+  );
+});
+
+test('my_applications status labels, tones, progress steps, sorting, and latest home update work accurately', () => {
+  assert.deepEqual([...APPLICATION_PROGRESS_STEPS], [
+    'Applied',
+    'Shortlisted',
+    'Interview',
+    'Selected',
+    'Offer made',
+    'Joined',
+  ]);
+
+  assert.deepEqual(formatCandidateApplicationStatus(null), {
+    label: 'Applied. Waiting for an update',
+    tone: 'blue',
+    stepIndex: 0,
+    isRejected: false,
+  });
+  assert.deepEqual(formatCandidateApplicationStatus('shortlisted'), {
+    label: 'Shortlisted',
+    tone: 'green',
+    stepIndex: 1,
+    isRejected: false,
+  });
+  assert.deepEqual(formatCandidateApplicationStatus('interview'), {
+    label: 'Interview stage',
+    tone: 'teal',
+    stepIndex: 2,
+    isRejected: false,
+  });
+  assert.deepEqual(formatCandidateApplicationStatus('selected'), {
+    label: 'Selected',
+    tone: 'green',
+    stepIndex: 3,
+    isRejected: false,
+  });
+  assert.deepEqual(formatCandidateApplicationStatus('offer_made'), {
+    label: 'Offer made',
+    tone: 'dark_green',
+    stepIndex: 4,
+    isRejected: false,
+  });
+  assert.deepEqual(formatCandidateApplicationStatus('joined'), {
+    label: 'Joined',
+    tone: 'green',
+    stepIndex: 5,
+    isRejected: false,
+  });
+  assert.deepEqual(formatCandidateApplicationStatus('rejected'), {
+    label: 'Not selected',
+    tone: 'grey',
+    stepIndex: -1,
+    isRejected: true,
+  });
+
+  const apps: CandidateApplication[] = [
+    {
+      recipient_id: 'rec-waiting',
+      opportunity_id: 'opp-1',
+      company: 'Beta Systems',
+      job_title: 'SAP FICO Analyst',
+      description: 'Details',
+      jd_path: null,
+      package_min_lakhs: 5,
+      package_max_lakhs: 7,
+      applied_at: '2026-11-08T10:00:00.000Z',
+      pipeline_stage: null,
+      stage_updated_at: null,
+      cancelled: false,
+    },
+    {
+      recipient_id: 'rec-shortlisted',
+      opportunity_id: 'opp-2',
+      company: 'Acme Corp',
+      job_title: 'SAP MM Consultant',
+      description: 'Full description',
+      jd_path: 'opp-2/jd.pdf',
+      package_min_lakhs: 7,
+      package_max_lakhs: 10,
+      applied_at: '2026-11-05T09:00:00.000Z',
+      pipeline_stage: 'shortlisted',
+      stage_updated_at: '2026-11-10T11:30:00.000Z',
+      cancelled: false,
+    },
+    {
+      recipient_id: 'rec-interview',
+      opportunity_id: 'opp-3',
+      company: 'Zenith Tech',
+      job_title: 'SAP ABAP Developer',
+      description: null,
+      jd_path: null,
+      package_min_lakhs: null,
+      package_max_lakhs: null,
+      applied_at: '2026-11-01T08:00:00.000Z',
+      pipeline_stage: 'interview',
+      stage_updated_at: '2026-11-09T16:00:00.000Z',
+      cancelled: true,
+    },
+  ];
+
+  // Sorted most recently updated (or applied when no update yet) first
+  const sorted = sortCandidateApplicationsNewestFirst(apps);
+  assert.deepEqual(
+    sorted.map((a) => a.recipient_id),
+    ['rec-shortlisted', 'rec-interview', 'rec-waiting'],
+  );
+
+  // Latest update for Candidate Home card ignores apps with null pipeline_stage
+  assert.equal(getMostRecentUpdatedApplication([apps[0]]), null);
+  const latest = getMostRecentUpdatedApplication(apps);
+  assert.equal(latest?.application.recipient_id, 'rec-shortlisted');
+  assert.equal(latest?.summaryText, 'Acme Corp: Shortlisted');
+});
+
+
+
+

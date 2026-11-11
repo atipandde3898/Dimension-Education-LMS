@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock, Search } from 'lucide-react';
 import type { CandidateOverview, SortDirection } from '../../types/database';
-import { filterAndSortRows, formatInr } from '../../utils/domain';
+import {
+  filterAndSortRows,
+  formatCandidateStatusLabel,
+  formatInr,
+} from '../../utils/domain';
 import {
   EmptyState,
   ErrorState,
@@ -22,9 +26,9 @@ type SortField =
   | 'handed_over';
 
 const STATUS_TEXT_CLASS: Record<CandidateOverview['status'], string> = {
-  onboarding: 'text-amber-700',
-  active: 'text-emerald-700',
-  completed: 'text-blue-700',
+  enrolled: 'text-amber-700',
+  in_training: 'text-emerald-700',
+  certified: 'text-blue-700',
   dropped: 'text-red-700',
 };
 
@@ -127,9 +131,9 @@ export function CounsellorCandidatesView({
             {(
               [
                 'all',
-                'onboarding',
-                'active',
-                'completed',
+                'enrolled',
+                'in_training',
+                'certified',
                 'dropped',
               ] as StatusFilter[]
             ).map((st) => (
@@ -137,13 +141,13 @@ export function CounsellorCandidatesView({
                 key={st}
                 type="button"
                 onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md capitalize transition-colors whitespace-nowrap shrink-0 ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                   statusFilter === st
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {st}
+                {st === 'all' ? 'All' : formatCandidateStatusLabel(st)}
               </button>
             ))}
           </div>
@@ -327,11 +331,11 @@ export function CounsellorCandidatesView({
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span
-                            className={`text-xs font-medium capitalize ${
+                            className={`text-xs font-medium ${
                               STATUS_TEXT_CLASS[cand.status]
                             }`}
                           >
-                            {cand.status}
+                            {formatCandidateStatusLabel(cand.status)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-xs tabular-nums whitespace-nowrap">
@@ -386,11 +390,11 @@ export function CounsellorCandidatesView({
                           ·
                         </span>
                         <span
-                          className={`font-medium capitalize ${
+                          className={`font-medium ${
                             STATUS_TEXT_CLASS[cand.status]
                           }`}
                         >
-                          {cand.status}
+                          {formatCandidateStatusLabel(cand.status)}
                         </span>
                       </div>
                       <p className="mt-1 font-semibold text-slate-900 truncate">

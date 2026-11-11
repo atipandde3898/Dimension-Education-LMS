@@ -15,6 +15,7 @@ import type {
 import {
   computeTotalSessionHours,
   filterAndSortRows,
+  formatCandidateStatusLabel,
   formatDate,
   formatDateTime,
   formatDbError,
@@ -49,9 +50,9 @@ type CandidateSortField =
   | 'status';
 
 const STATUS_STYLES: Record<Candidate['status'], string> = {
-  onboarding: 'text-amber-700',
-  active: 'text-emerald-700',
-  completed: 'text-blue-700',
+  enrolled: 'text-amber-700',
+  in_training: 'text-emerald-700',
+  certified: 'text-blue-700',
   dropped: 'text-red-700',
 };
 
@@ -766,11 +767,11 @@ export function BatchDetailView({
                       </td>
                       <td className="px-4 py-3">
                         <span
-                          className={`text-xs font-medium capitalize ${
+                          className={`text-xs font-medium ${
                             STATUS_STYLES[cand.status]
                           }`}
                         >
-                          {cand.status}
+                          {formatCandidateStatusLabel(cand.status)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">

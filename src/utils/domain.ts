@@ -2,16 +2,28 @@ import type {
   Batch,
   BatchSme,
   Candidate,
+  CandidateApplication,
+  CandidateCv,
   CandidateDocument,
+  CandidateEducation,
   CandidateFeesSummary,
+  CandidateOpportunity,
   CandidateOverview,
+  CandidateProfileFull,
+  CandidateStatusValue,
+  CandidateWork,
   ClassSession,
   DashboardStats,
   DocTypeValue,
+  WorkTypeValue,
   FeePlan,
   InstallmentStateValue,
   InstallmentStatus,
   Module,
+  Opportunity,
+  OpportunityPipelineStage,
+  OpportunityResponse,
+  OpportunityResponseState,
   PendingDocumentWithCandidate,
   PendingPaymentWithCandidate,
   PlacementHandover,
@@ -292,6 +304,7 @@ export function resolvePortalArea(
   | 'candidate'
   | 'sme'
   | 'counsellor'
+  | 'placement'
   | 'coming_soon'
   | 'inactive'
   | 'missing_profile' {
@@ -301,6 +314,7 @@ export function resolvePortalArea(
   if (profile.role === 'candidate') return 'candidate';
   if (profile.role === 'sme') return 'sme';
   if (profile.role === 'counsellor') return 'counsellor';
+  if (profile.role === 'placement') return 'placement';
   return 'coming_soon';
 }
 
@@ -380,6 +394,33 @@ export function buildBatchCreatePayload(
   };
 }
 
+export const CANDIDATE_STATUS_OPTIONS: ReadonlyArray<{
+  value: CandidateStatusValue;
+  label: string;
+}> = [
+  { value: 'enrolled', label: 'Enrolled' },
+  { value: 'in_training', label: 'In training' },
+  { value: 'certified', label: 'Certified' },
+  { value: 'dropped', label: 'Dropped' },
+];
+
+export function formatCandidateStatusLabel(
+  status: CandidateStatusValue | string | null | undefined,
+): string {
+  switch (status) {
+    case 'enrolled':
+      return 'Enrolled';
+    case 'in_training':
+      return 'In training';
+    case 'certified':
+      return 'Certified';
+    case 'dropped':
+      return 'Dropped';
+    default:
+      return status ? String(status) : 'Enrolled';
+  }
+}
+
 export interface CandidateCreateInput {
   full_name: string;
   email: string;
@@ -398,7 +439,7 @@ export interface CandidateInsertPayload {
   module_id: string;
   counsellor_id: string;
   batch_id: string | null;
-  status: 'onboarding';
+  status: 'enrolled';
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -461,7 +502,7 @@ export function buildCandidateCreatePayload(
       module_id: moduleId,
       counsellor_id: counsellorId,
       batch_id: batchId,
-      status: 'onboarding',
+      status: 'enrolled',
     },
   };
 }
@@ -474,7 +515,7 @@ export interface CandidateUpdateInput {
   module_id: string;
   batch_id?: string | null;
   counsellor_id?: string | null;
-  status: 'onboarding' | 'active' | 'completed' | 'dropped';
+  status: CandidateStatusValue;
 }
 
 export interface CandidateUpdatePayload {
@@ -483,7 +524,7 @@ export interface CandidateUpdatePayload {
   phone: string | null;
   program_id: string;
   counsellor_id: string | null;
-  status: 'onboarding' | 'active' | 'completed' | 'dropped';
+  status: CandidateStatusValue;
   module_id?: string;
   batch_id?: string | null;
 }
@@ -583,8 +624,9 @@ export function normalizeDashboardStats(
 ): DashboardStats {
   return {
     total_candidates: Number(row?.total_candidates ?? 0),
-    onboarding: Number(row?.onboarding ?? 0),
-    active: Number(row?.active ?? 0),
+    enrolled: Number(row?.enrolled ?? 0),
+    in_training: Number(row?.in_training ?? 0),
+    certified: Number(row?.certified ?? 0),
     total_pending_fees: Number(row?.total_pending_fees ?? 0),
     overdue_installments: Number(row?.overdue_installments ?? 0),
     handed_over: Number(row?.handed_over ?? 0),
@@ -2561,15 +2603,28 @@ export function formatConsentStatusLabel(
 
 /**
  * Determines whether mandatory onboarding requirements are incomplete:
- * Candidate must have uploaded a profile photo (any status) AND accepted all required consents.
+ * Candidate must have profile photo uploaded, all required consents accepted,
+ * education details saved, work background saved, and CV uploaded.
  */
 export function isMandatoryOnboardingIncomplete(
-  onboardingStatus: {
-    photo_status?: string | null;
-    consents_accepted?: number | null;
-    consents_required?: number | null;
-  } | null | undefined,
+  onboardingStatus:
+    | {
+        photo_status?: string | null;
+        consents_accepted?: number | null;
+        consents_required?: number | null;
+        education_done?: boolean | null;
+        work_done?: boolean | null;
+        cv_done?: boolean | null;
+        onboarding_complete?: boolean | null;
+      }
+    | null
+    | undefined,
   documents: CandidateDocument[] = [],
+  extras?: {
+    hasEducation?: boolean;
+    hasWork?: boolean;
+    hasCv?: boolean;
+  },
 ): boolean {
   const hasProfilePhotoDoc = documents.some(
     (d) => d.doc_type === 'profile_photo',
@@ -2583,11 +2638,17 @@ export function isMandatoryOnboardingIncomplete(
   const hasConsents =
     consentsRequired > 0 ? consentsAccepted >= consentsRequired : false;
 
-  return !hasPhoto || !hasConsents;
+  const hasEducation = Boolean(
+    onboardingStatus?.education_done ?? extras?.hasEducation,
+  );
+  const hasWork = Boolean(onboardingStatus?.work_done ?? extras?.hasWork);
+  const hasCv = Boolean(onboardingStatus?.cv_done ?? extras?.hasCv);
+
+  return !(hasPhoto && hasConsents && hasEducation && hasWork && hasCv);
 }
 
 /**
- * A candidate may access the portal while status is 'onboarding', 'active', or 'completed'.
+ * A candidate may access the portal while status is 'enrolled', 'in_training', or 'certified'.
  * Only block access when profiles.active is false or candidates.status is 'dropped'.
  */
 export function isCandidatePortalBlocked(
@@ -2597,3 +2658,1194 @@ export function isCandidatePortalBlocked(
   if (!profileActive) return true;
   return candidateStatus === 'dropped';
 }
+
+export interface EducationFormInput {
+  ssc_year: string | number;
+  ssc_percent: string | number;
+  hsc_na: boolean;
+  hsc_year: string | number;
+  hsc_percent: string | number;
+  diploma_na: boolean;
+  diploma_stream: string;
+  diploma_year: string | number;
+  diploma_percent: string | number;
+  graduation_na: boolean;
+  graduation_stream: string;
+  graduation_degree: string;
+  graduation_year: string | number;
+  graduation_percent: string | number;
+  graduation_university: string;
+  pg_na: boolean;
+  pg_stream: string;
+  pg_degree: string;
+  pg_year: string | number;
+  pg_percent: string | number;
+  pg_university: string;
+}
+
+function validateEducationYear(
+  raw: string | number | null | undefined,
+  label: string,
+  maxYear: number,
+): { ok: true; value: number } | { ok: false; error: string } {
+  const str = String(raw ?? '').trim();
+  if (!str) {
+    return { ok: false, error: `${label} passing year is required.` };
+  }
+  if (!/^\d{4}$/.test(str)) {
+    return {
+      ok: false,
+      error: `${label} year must be a whole 4-digit year between 1980 and ${maxYear}.`,
+    };
+  }
+  const num = Number(str);
+  if (!Number.isInteger(num) || num < 1980 || num > maxYear) {
+    return {
+      ok: false,
+      error: `${label} year must be between 1980 and ${maxYear}.`,
+    };
+  }
+  return { ok: true, value: num };
+}
+
+function validateEducationPercent(
+  raw: string | number | null | undefined,
+  label: string,
+): { ok: true; value: number } | { ok: false; error: string } {
+  const str = String(raw ?? '').trim();
+  if (!str) {
+    return { ok: false, error: `${label} percentage is required.` };
+  }
+  if (!/^\d+(\.\d{1,2})?$/.test(str)) {
+    return {
+      ok: false,
+      error: `${label} percentage must be between 0 and 100 with up to 2 decimal places.`,
+    };
+  }
+  const num = Number(str);
+  if (!Number.isFinite(num) || num < 0 || num > 100) {
+    return {
+      ok: false,
+      error: `${label} percentage must be between 0 and 100.`,
+    };
+  }
+  return { ok: true, value: Math.round(num * 100) / 100 };
+}
+
+/**
+ * Validates candidate education form values and produces the upsert payload for `candidate_education`.
+ */
+export function validateAndBuildEducationPayload(
+  candidateId: string,
+  input: EducationFormInput,
+  currentYear = new Date().getFullYear(),
+):
+  | { ok: true; payload: CandidateEducation }
+  | { ok: false; error: string } {
+  const trimmedCandidateId = candidateId.trim();
+  if (!trimmedCandidateId) {
+    return { ok: false, error: 'Candidate identifier is missing.' };
+  }
+
+  const maxYear = currentYear + 1;
+
+  // 1. Cross-section rules
+  if (input.diploma_na && input.graduation_na) {
+    return {
+      ok: false,
+      error:
+        'At least one of Engineering diploma or Graduation must be entered.',
+    };
+  }
+
+  if (input.hsc_na && input.diploma_na) {
+    return {
+      ok: false,
+      error:
+        'HSC can be marked "Not applicable" only when an Engineering diploma is entered.',
+    };
+  }
+
+  // 2. SSC (always required)
+  const sscYear = validateEducationYear(input.ssc_year, 'SSC', maxYear);
+  if (!sscYear.ok) return sscYear;
+  const sscPercent = validateEducationPercent(input.ssc_percent, 'SSC');
+  if (!sscPercent.ok) return sscPercent;
+
+  // 3. HSC
+  let hscYearVal: number | null = null;
+  let hscPercentVal: number | null = null;
+  if (!input.hsc_na) {
+    const y = validateEducationYear(input.hsc_year, 'HSC', maxYear);
+    if (!y.ok) return y;
+    const p = validateEducationPercent(input.hsc_percent, 'HSC');
+    if (!p.ok) return p;
+    hscYearVal = y.value;
+    hscPercentVal = p.value;
+  }
+
+  // 4. Engineering diploma
+  let diplomaStreamVal: string | null = null;
+  let diplomaYearVal: number | null = null;
+  let diplomaPercentVal: number | null = null;
+  if (!input.diploma_na) {
+    const stream = (input.diploma_stream ?? '').trim();
+    if (!stream) {
+      return { ok: false, error: 'Engineering diploma stream is required.' };
+    }
+    const y = validateEducationYear(
+      input.diploma_year,
+      'Engineering diploma',
+      maxYear,
+    );
+    if (!y.ok) return y;
+    const p = validateEducationPercent(
+      input.diploma_percent,
+      'Engineering diploma',
+    );
+    if (!p.ok) return p;
+    diplomaStreamVal = stream;
+    diplomaYearVal = y.value;
+    diplomaPercentVal = p.value;
+  }
+
+  // 5. Graduation
+  let gradStreamVal: string | null = null;
+  let gradDegreeVal: string | null = null;
+  let gradYearVal: number | null = null;
+  let gradPercentVal: number | null = null;
+  let gradUniVal: string | null = null;
+  if (!input.graduation_na) {
+    const stream = (input.graduation_stream ?? '').trim();
+    const degree = (input.graduation_degree ?? '').trim();
+    const uni = (input.graduation_university ?? '').trim();
+    if (!stream) {
+      return { ok: false, error: 'Graduation stream is required.' };
+    }
+    if (!degree) {
+      return { ok: false, error: 'Graduation degree is required.' };
+    }
+    const y = validateEducationYear(
+      input.graduation_year,
+      'Graduation',
+      maxYear,
+    );
+    if (!y.ok) return y;
+    const p = validateEducationPercent(input.graduation_percent, 'Graduation');
+    if (!p.ok) return p;
+    if (!uni) {
+      return { ok: false, error: 'Graduation university is required.' };
+    }
+    gradStreamVal = stream;
+    gradDegreeVal = degree;
+    gradYearVal = y.value;
+    gradPercentVal = p.value;
+    gradUniVal = uni;
+  }
+
+  // 6. Post graduation
+  let pgStreamVal: string | null = null;
+  let pgDegreeVal: string | null = null;
+  let pgYearVal: number | null = null;
+  let pgPercentVal: number | null = null;
+  let pgUniVal: string | null = null;
+  if (!input.pg_na) {
+    const stream = (input.pg_stream ?? '').trim();
+    const degree = (input.pg_degree ?? '').trim();
+    const uni = (input.pg_university ?? '').trim();
+    if (!stream) {
+      return { ok: false, error: 'Post graduation stream is required.' };
+    }
+    if (!degree) {
+      return { ok: false, error: 'Post graduation degree is required.' };
+    }
+    const y = validateEducationYear(
+      input.pg_year,
+      'Post graduation',
+      maxYear,
+    );
+    if (!y.ok) return y;
+    const p = validateEducationPercent(input.pg_percent, 'Post graduation');
+    if (!p.ok) return p;
+    if (!uni) {
+      return { ok: false, error: 'Post graduation university is required.' };
+    }
+    pgStreamVal = stream;
+    pgDegreeVal = degree;
+    pgYearVal = y.value;
+    pgPercentVal = p.value;
+    pgUniVal = uni;
+  }
+
+  return {
+    ok: true,
+    payload: {
+      candidate_id: trimmedCandidateId,
+      ssc_year: sscYear.value,
+      ssc_percent: sscPercent.value,
+      hsc_na: Boolean(input.hsc_na),
+      hsc_year: hscYearVal,
+      hsc_percent: hscPercentVal,
+      diploma_na: Boolean(input.diploma_na),
+      diploma_stream: diplomaStreamVal,
+      diploma_year: diplomaYearVal,
+      diploma_percent: diplomaPercentVal,
+      graduation_na: Boolean(input.graduation_na),
+      graduation_stream: gradStreamVal,
+      graduation_degree: gradDegreeVal,
+      graduation_year: gradYearVal,
+      graduation_percent: gradPercentVal,
+      graduation_university: gradUniVal,
+      pg_na: Boolean(input.pg_na),
+      pg_stream: pgStreamVal,
+      pg_degree: pgDegreeVal,
+      pg_year: pgYearVal,
+      pg_percent: pgPercentVal,
+      pg_university: pgUniVal,
+    },
+  };
+}
+
+export interface WorkFormInput {
+  work_type: WorkTypeValue;
+  total_exp_years: string | number;
+  sap_consultant_exp_years: string | number;
+  sap_end_user_exp_years: string | number;
+  relevant_domain_exp_years: string | number;
+  current_ctc_lakhs: string | number;
+  notice_period_months: string | number;
+}
+
+function validateHalfYearExperience(
+  raw: string | number | null | undefined,
+  label: string,
+): { ok: true; value: number } | { ok: false; error: string } {
+  const str = String(raw ?? '').trim();
+  if (!str) {
+    return { ok: false, error: `${label} is required.` };
+  }
+  const num = Number(str);
+  if (!Number.isFinite(num) || num < 0 || num > 60) {
+    return {
+      ok: false,
+      error: `${label} must be between 0 and 60 years.`,
+    };
+  }
+  const scaled = Math.round(num * 1000);
+  if (Math.abs(num * 1000 - scaled) > 1e-6 || scaled % 500 !== 0) {
+    return {
+      ok: false,
+      error: `${label} must be in steps of 0.5 years (e.g. 0, 0.5, 1, 2.5).`,
+    };
+  }
+  return { ok: true, value: scaled / 1000 };
+}
+
+/**
+ * Validates candidate work background and builds the upsert payload for `candidate_work`.
+ */
+export function validateAndBuildWorkPayload(
+  candidateId: string,
+  input: WorkFormInput,
+): { ok: true; payload: CandidateWork } | { ok: false; error: string } {
+  const trimmedCandidateId = candidateId.trim();
+  if (!trimmedCandidateId) {
+    return { ok: false, error: 'Candidate identifier is missing.' };
+  }
+
+  if (input.work_type === 'fresher') {
+    return {
+      ok: true,
+      payload: {
+        candidate_id: trimmedCandidateId,
+        work_type: 'fresher',
+        total_exp_years: null,
+        sap_consultant_exp_years: null,
+        sap_end_user_exp_years: null,
+        relevant_domain_exp_years: null,
+        current_ctc_lakhs: null,
+        notice_period_months: null,
+      },
+    };
+  }
+
+  if (input.work_type !== 'professional') {
+    return { ok: false, error: 'Please select Fresher or Working professional.' };
+  }
+
+  const totalExp = validateHalfYearExperience(
+    input.total_exp_years,
+    'Total experience',
+  );
+  if (!totalExp.ok) return totalExp;
+
+  const sapConsExp = validateHalfYearExperience(
+    input.sap_consultant_exp_years,
+    'SAP consultant experience',
+  );
+  if (!sapConsExp.ok) return sapConsExp;
+
+  const sapUserExp = validateHalfYearExperience(
+    input.sap_end_user_exp_years,
+    'SAP end-user experience',
+  );
+  if (!sapUserExp.ok) return sapUserExp;
+
+  const domainExp = validateHalfYearExperience(
+    input.relevant_domain_exp_years,
+    'Relevant domain experience',
+  );
+  if (!domainExp.ok) return domainExp;
+
+  if (sapConsExp.value > totalExp.value) {
+    return {
+      ok: false,
+      error: 'SAP consultant experience cannot exceed total experience.',
+    };
+  }
+  if (sapUserExp.value > totalExp.value) {
+    return {
+      ok: false,
+      error: 'SAP end-user experience cannot exceed total experience.',
+    };
+  }
+  if (domainExp.value > totalExp.value) {
+    return {
+      ok: false,
+      error: 'Relevant domain experience cannot exceed total experience.',
+    };
+  }
+
+  const rawCtc = String(input.current_ctc_lakhs ?? '').trim();
+  if (!rawCtc) {
+    return { ok: false, error: 'Current CTC (in LPA) is required.' };
+  }
+  const ctcNum = Number(rawCtc);
+  if (!Number.isFinite(ctcNum) || ctcNum < 0) {
+    return {
+      ok: false,
+      error: 'Current CTC must be a valid non-negative number (₹ LPA).',
+    };
+  }
+
+  const rawNotice = String(input.notice_period_months ?? '').trim();
+  if (!rawNotice) {
+    return { ok: false, error: 'Notice period (in months) is required.' };
+  }
+  if (!/^\d+$/.test(rawNotice)) {
+    return {
+      ok: false,
+      error: 'Notice period must be a whole number of months from 0 to 12.',
+    };
+  }
+  const noticeNum = Number(rawNotice);
+  if (!Number.isInteger(noticeNum) || noticeNum < 0 || noticeNum > 12) {
+    return {
+      ok: false,
+      error: 'Notice period must be between 0 and 12 months.',
+    };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      candidate_id: trimmedCandidateId,
+      work_type: 'professional',
+      total_exp_years: totalExp.value,
+      sap_consultant_exp_years: sapConsExp.value,
+      sap_end_user_exp_years: sapUserExp.value,
+      relevant_domain_exp_years: domainExp.value,
+      current_ctc_lakhs: Math.round(ctcNum * 100) / 100,
+      notice_period_months: noticeNum,
+    },
+  };
+}
+
+export function resolveCvExtension(
+  fileName: string,
+  mimeType?: string,
+): 'pdf' | 'doc' | 'docx' | null {
+  const lowerName = fileName.trim().toLowerCase();
+  const lowerMime = (mimeType ?? '').trim().toLowerCase();
+  const extMatch = /\.([a-z0-9]+)$/.exec(lowerName);
+  const rawExt = extMatch ? extMatch[1] : '';
+
+  if (rawExt === 'pdf' || (!rawExt && lowerMime === 'application/pdf')) {
+    return 'pdf';
+  }
+  if (rawExt === 'doc' || (!rawExt && lowerMime === 'application/msword')) {
+    return 'doc';
+  }
+  if (
+    rawExt === 'docx' ||
+    (!rawExt &&
+      lowerMime ===
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+  ) {
+    return 'docx';
+  }
+  return null;
+}
+
+export function sanitizeCvFilename(
+  rawName: string,
+  ext: 'pdf' | 'doc' | 'docx',
+): string {
+  const withoutExt = rawName.trim().replace(/\.[a-z0-9]+$/i, '');
+  const cleanedBase = withoutExt
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+  const base = cleanedBase || 'cv';
+  return `${base}.${ext}`;
+}
+
+/**
+ * Validates CV file (pdf, doc, docx, max 5 MB) and builds storage path:
+ * `<candidate_id>/cv/<timestamp>-<filename>`
+ */
+export function validateAndBuildCvUpload(
+  candidateId: string,
+  file: { name: string; size: number; type?: string } | null | undefined,
+  timestampMs = Date.now(),
+):
+  | {
+      ok: true;
+      storagePath: string;
+      fileName: string;
+      ext: 'pdf' | 'doc' | 'docx';
+    }
+  | { ok: false; error: string } {
+  const trimmedCandidateId = candidateId.trim();
+  if (!trimmedCandidateId) {
+    return { ok: false, error: 'Candidate identifier is missing.' };
+  }
+  if (!file) {
+    return {
+      ok: false,
+      error: 'Please choose a CV file (PDF, DOC, or DOCX).',
+    };
+  }
+  if (file.size <= 0) {
+    return { ok: false, error: 'The selected CV file is empty.' };
+  }
+  if (file.size > MAX_DOCUMENT_BYTES) {
+    return {
+      ok: false,
+      error: 'File is larger than 5 MB. Please choose a file up to 5 MB.',
+    };
+  }
+  const ext = resolveCvExtension(file.name, file.type);
+  if (!ext) {
+    return {
+      ok: false,
+      error: 'Unsupported file format. Choose a PDF, DOC, or DOCX file.',
+    };
+  }
+
+  const safeFilename = sanitizeCvFilename(file.name, ext);
+  const originalName = file.name.trim() || safeFilename;
+  return {
+    ok: true,
+    ext,
+    fileName: originalName,
+    storagePath: `${trimmedCandidateId}/cv/${timestampMs}-${safeFilename}`,
+  };
+}
+
+export type CandidateCvRow = CandidateCv;
+
+export const OPPORTUNITY_FILES_BUCKET = 'opportunity-files';
+
+export const OPPORTUNITY_VISIBILITY_HOURS = [12, 24, 48] as const;
+export type OpportunityVisibilityHours =
+  (typeof OPPORTUNITY_VISIBILITY_HOURS)[number];
+
+export const PIPELINE_STAGE_OPTIONS: ReadonlyArray<{
+  value: OpportunityPipelineStage;
+  label: string;
+}> = [
+  { value: 'shortlisted', label: 'Shortlisted' },
+  { value: 'interview', label: 'Interview' },
+  { value: 'selected', label: 'Selected' },
+  { value: 'offer_made', label: 'Offer made' },
+  { value: 'joined', label: 'Joined' },
+  { value: 'rejected', label: 'Rejected' },
+];
+
+export function formatPipelineStageLabel(
+  stage: OpportunityPipelineStage | string | null | undefined,
+): string {
+  if (!stage) return 'No stage';
+  const match = PIPELINE_STAGE_OPTIONS.find((opt) => opt.value === stage);
+  return match ? match.label : stage;
+}
+
+export const RESPONSE_STATE_OPTIONS: ReadonlyArray<{
+  value: OpportunityResponseState;
+  label: string;
+}> = [
+  { value: 'interested', label: 'Interested' },
+  { value: 'not_interested', label: 'Not interested' },
+  { value: 'waiting', label: 'Waiting' },
+  { value: 'no_response', label: 'No response' },
+];
+
+export function formatResponseStateLabel(
+  state: OpportunityResponseState | string | null | undefined,
+): string {
+  if (state === 'interested') return 'Interested';
+  if (state === 'not_interested') return 'Not interested';
+  if (state === 'waiting') return 'Waiting';
+  if (state === 'no_response') return 'No response';
+  return state ? String(state) : '—';
+}
+
+export function formatTimeLeft(
+  expiresAtIso: string | null | undefined,
+  nowMs = Date.now(),
+): string {
+  if (!expiresAtIso) return 'Expired';
+  const targetMs = new Date(expiresAtIso).getTime();
+  if (Number.isNaN(targetMs)) return 'Expired';
+  const diffMs = targetMs - nowMs;
+  if (diffMs <= 0) return 'Expired';
+  const totalMinutes = Math.ceil(diffMs / 60000);
+  if (totalMinutes < 60) return `${totalMinutes}m left`;
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  if (hours < 24) {
+    return mins > 0 ? `${hours}h ${mins}m left` : `${hours}h left`;
+  }
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `${days}d ${remHours}h left` : `${days}d left`;
+}
+
+export function formatPackageRangeInr(
+  minLakhs: number | null | undefined,
+  maxLakhs: number | null | undefined,
+): string {
+  const hasMin = minLakhs !== null && minLakhs !== undefined && Number.isFinite(Number(minLakhs));
+  const hasMax = maxLakhs !== null && maxLakhs !== undefined && Number.isFinite(Number(maxLakhs));
+  const formatVal = (v: number) => {
+    const rounded = Math.round(v * 100) / 100;
+    return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  };
+
+  if (hasMin && hasMax) {
+    const min = Number(minLakhs);
+    const max = Number(maxLakhs);
+    if (min === max) return `₹${formatVal(min)} lakhs per annum`;
+    return `₹${formatVal(min)} – ₹${formatVal(max)} lakhs per annum`;
+  }
+  if (hasMin) return `From ₹${formatVal(Number(minLakhs))} lakhs per annum`;
+  if (hasMax) return `Up to ₹${formatVal(Number(maxLakhs))} lakhs per annum`;
+  return 'Package not specified';
+}
+
+export function formatCtcLakhs(ctc: number | null | undefined): string {
+  if (ctc === null || ctc === undefined || !Number.isFinite(Number(ctc))) {
+    return '—';
+  }
+  const num = Math.round(Number(ctc) * 100) / 100;
+  return `₹${num} lakhs per annum`;
+}
+
+export function isOpportunityLive(
+  opportunity: Pick<Opportunity, 'id' | 'cancelled'>,
+  responsesForOpportunity: ReadonlyArray<Pick<OpportunityResponse, 'expires_at'>>,
+  nowMs = Date.now(),
+): boolean {
+  if (opportunity.cancelled) return false;
+  return responsesForOpportunity.some((r) => {
+    const t = new Date(r.expires_at).getTime();
+    return !Number.isNaN(t) && t > nowMs;
+  });
+}
+
+export type OpportunityStatusLabel = 'Live' | 'Closed' | 'Cancelled';
+
+export function computeOpportunityStatus(
+  opportunity: Pick<Opportunity, 'id' | 'cancelled'>,
+  responsesForOpportunity: ReadonlyArray<Pick<OpportunityResponse, 'expires_at'>>,
+  nowMs = Date.now(),
+): OpportunityStatusLabel {
+  if (opportunity.cancelled) return 'Cancelled';
+  if (isOpportunityLive(opportunity, responsesForOpportunity, nowMs)) {
+    return 'Live';
+  }
+  return 'Closed';
+}
+
+export interface OpportunityResponseCounts {
+  sent: number;
+  interested: number;
+  notInterested: number;
+  waiting: number;
+  noResponse: number;
+}
+
+export function computeOpportunityCounts(
+  responses: ReadonlyArray<Pick<OpportunityResponse, 'response_state'>>,
+): OpportunityResponseCounts {
+  let interested = 0;
+  let notInterested = 0;
+  let waiting = 0;
+  let noResponse = 0;
+
+  for (const r of responses) {
+    if (r.response_state === 'interested') interested += 1;
+    else if (r.response_state === 'not_interested') notInterested += 1;
+    else if (r.response_state === 'waiting') waiting += 1;
+    else if (r.response_state === 'no_response') noResponse += 1;
+  }
+
+  return {
+    sent: responses.length,
+    interested,
+    notInterested,
+    waiting,
+    noResponse,
+  };
+}
+
+export interface PlacementDashboardSummary {
+  candidatesVisible: number;
+  liveOpportunities: number;
+  waitingForDecision: number;
+  pipelineCounts: Record<OpportunityPipelineStage, number>;
+}
+
+export function computePlacementDashboardSummary(
+  candidatesVisible: number,
+  opportunities: ReadonlyArray<Pick<Opportunity, 'id' | 'cancelled'>>,
+  responses: ReadonlyArray<
+    Pick<
+      OpportunityResponse,
+      'opportunity_id' | 'expires_at' | 'response_state' | 'pipeline_stage'
+    >
+  >,
+  nowMs = Date.now(),
+): PlacementDashboardSummary {
+  const responsesByOpp = new Map<
+    string,
+    Array<Pick<OpportunityResponse, 'expires_at'>>
+  >();
+
+  let waitingForDecision = 0;
+  const pipelineCounts: Record<OpportunityPipelineStage, number> = {
+    shortlisted: 0,
+    interview: 0,
+    selected: 0,
+    offer_made: 0,
+    joined: 0,
+    rejected: 0,
+  };
+
+  for (const r of responses) {
+    const list = responsesByOpp.get(r.opportunity_id) ?? [];
+    list.push(r);
+    responsesByOpp.set(r.opportunity_id, list);
+
+    if (r.response_state === 'interested' && !r.pipeline_stage) {
+      waitingForDecision += 1;
+    }
+    if (r.pipeline_stage && r.pipeline_stage in pipelineCounts) {
+      pipelineCounts[r.pipeline_stage] += 1;
+    }
+  }
+
+  let liveOpportunities = 0;
+  for (const opp of opportunities) {
+    if (isOpportunityLive(opp, responsesByOpp.get(opp.id) ?? [], nowMs)) {
+      liveOpportunities += 1;
+    }
+  }
+
+  return {
+    candidatesVisible,
+    liveOpportunities,
+    waitingForDecision,
+    pipelineCounts,
+  };
+}
+
+/**
+ * Validates JD file (pdf, doc, docx, max 5 MB) and builds storage path:
+ * `<opportunity_id>/<timestamp>-<filename>` in bucket `opportunity-files`.
+ */
+export function validateAndBuildJdUpload(
+  opportunityId: string,
+  file: { name: string; size: number; type?: string } | null | undefined,
+  timestampMs = Date.now(),
+):
+  | {
+      ok: true;
+      storagePath: string;
+      fileName: string;
+      ext: 'pdf' | 'doc' | 'docx';
+    }
+  | { ok: false; error: string } {
+  const trimmedId = opportunityId.trim();
+  if (!trimmedId) {
+    return { ok: false, error: 'Opportunity identifier is missing.' };
+  }
+  if (!file) {
+    return {
+      ok: false,
+      error: 'Please choose a job description file (PDF, DOC, or DOCX).',
+    };
+  }
+  if (file.size <= 0) {
+    return { ok: false, error: 'The selected file is empty.' };
+  }
+  if (file.size > MAX_DOCUMENT_BYTES) {
+    return {
+      ok: false,
+      error: 'File is larger than 5 MB. Please choose a file up to 5 MB.',
+    };
+  }
+  const ext = resolveCvExtension(file.name, file.type);
+  if (!ext) {
+    return {
+      ok: false,
+      error: 'Unsupported file format. Choose a PDF, DOC, or DOCX file.',
+    };
+  }
+  const safeName = sanitizeCvFilename(file.name, ext);
+  return {
+    ok: true,
+    ext,
+    fileName: file.name.trim() || safeName,
+    storagePath: `${trimmedId}/${timestampMs}-${safeName}`,
+  };
+}
+
+export interface OpportunityCreateInput {
+  id: string;
+  company: string;
+  jobTitle: string;
+  description: string;
+  jdPath: string | null;
+  packageMin: string | number | null | undefined;
+  packageMax: string | number | null | undefined;
+}
+
+export interface OpportunityInsertPayload {
+  id: string;
+  company: string;
+  job_title: string;
+  description: string | null;
+  jd_path: string | null;
+  package_min_lakhs: number | null;
+  package_max_lakhs: number | null;
+}
+
+/**
+ * Validates and builds the `opportunities` insert payload.
+ * Never includes `created_by` or `cancelled`.
+ */
+export function validateAndBuildOpportunityInsert(
+  input: OpportunityCreateInput,
+): { ok: true; payload: OpportunityInsertPayload } | { ok: false; error: string } {
+  const id = input.id.trim();
+  const company = input.company.trim();
+  const jobTitle = input.jobTitle.trim();
+  const description = input.description.trim();
+  const jdPath = input.jdPath ? input.jdPath.trim() : null;
+
+  if (!id) {
+    return { ok: false, error: 'Opportunity ID is missing.' };
+  }
+  if (!company) {
+    return { ok: false, error: 'Company name is required.' };
+  }
+  if (!jobTitle) {
+    return { ok: false, error: 'Job title is required.' };
+  }
+  if (!description && !jdPath) {
+    return {
+      ok: false,
+      error:
+        'Provide either a job description text or upload a job description file.',
+    };
+  }
+
+  let minVal: number | null = null;
+  const rawMin = String(input.packageMin ?? '').trim();
+  if (rawMin !== '') {
+    const parsed = Number(rawMin);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return {
+        ok: false,
+        error: 'Minimum package must be a valid non-negative number (₹ LPA).',
+      };
+    }
+    minVal = Math.round(parsed * 100) / 100;
+  }
+
+  let maxVal: number | null = null;
+  const rawMax = String(input.packageMax ?? '').trim();
+  if (rawMax !== '') {
+    const parsed = Number(rawMax);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return {
+        ok: false,
+        error: 'Maximum package must be a valid non-negative number (₹ LPA).',
+      };
+    }
+    maxVal = Math.round(parsed * 100) / 100;
+  }
+
+  if (minVal !== null && maxVal !== null && maxVal < minVal) {
+    return {
+      ok: false,
+      error: 'Maximum package cannot be below minimum package.',
+    };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      id,
+      company,
+      job_title: jobTitle,
+      description: description || null,
+      jd_path: jdPath || null,
+      package_min_lakhs: minVal,
+      package_max_lakhs: maxVal,
+    },
+  };
+}
+
+export function buildSendOpportunityFeedback(
+  sentCount: number,
+  selectedCount: number,
+): { primary: string; skipped: string | null } {
+  const safeSent = Math.max(0, Math.floor(sentCount));
+  const safeSelected = Math.max(0, Math.floor(selectedCount));
+  const skippedCount = Math.max(0, safeSelected - safeSent);
+
+  return {
+    primary: `Sent to ${safeSent} candidate${safeSent === 1 ? '' : 's'}`,
+    skipped:
+      skippedCount > 0
+        ? `${skippedCount} were skipped because they are not in training or certified.`
+        : null,
+  };
+}
+
+export type PlacementCandidateSortField =
+  | 'candidate_code'
+  | 'full_name'
+  | 'module'
+  | 'stage'
+  | 'work_exp'
+  | 'graduation'
+  | 'cv_present';
+
+export function filterAndSortPlacementCandidates(
+  candidates: ReadonlyArray<CandidateProfileFull>,
+  filters: {
+    moduleFilter: string;
+    stageFilter: 'in_training' | 'certified' | 'both';
+    search: string;
+  },
+  sort: { field: PlacementCandidateSortField; direction: SortDirection },
+): CandidateProfileFull[] {
+  const q = filters.search.trim().toLowerCase();
+
+  const filtered = candidates.filter((c) => {
+    if (filters.moduleFilter && filters.moduleFilter !== 'all') {
+      if ((c.module ?? '') !== filters.moduleFilter) return false;
+    }
+    if (filters.stageFilter !== 'both') {
+      if (c.stage !== filters.stageFilter) return false;
+    }
+    if (q) {
+      const matchesName = (c.full_name ?? '').toLowerCase().includes(q);
+      const matchesCode = (c.candidate_code ?? '').toLowerCase().includes(q);
+      if (!matchesName && !matchesCode) return false;
+    }
+    return true;
+  });
+
+  const dir = sort.direction === 'asc' ? 1 : -1;
+  return [...filtered].sort((a, b) => {
+    switch (sort.field) {
+      case 'candidate_code':
+        return dir * (a.candidate_code || '').localeCompare(b.candidate_code || '');
+      case 'full_name':
+        return dir * (a.full_name || '').localeCompare(b.full_name || '');
+      case 'module':
+        return dir * (a.module || '').localeCompare(b.module || '');
+      case 'stage':
+        return dir * (a.stage || '').localeCompare(b.stage || '');
+      case 'work_exp': {
+        const expA =
+          a.work_type === 'professional'
+            ? Number(a.total_exp_years ?? 0)
+            : a.work_type === 'fresher'
+              ? 0
+              : -1;
+        const expB =
+          b.work_type === 'professional'
+            ? Number(b.total_exp_years ?? 0)
+            : b.work_type === 'fresher'
+              ? 0
+              : -1;
+        return dir * (expA - expB);
+      }
+      case 'graduation': {
+        const pctA = a.graduation_na ? -1 : Number(a.graduation_percent ?? -1);
+        const pctB = b.graduation_na ? -1 : Number(b.graduation_percent ?? -1);
+        if (pctA !== pctB) return dir * (pctA - pctB);
+        return (
+          dir *
+          (a.graduation_degree || '').localeCompare(b.graduation_degree || '')
+        );
+      }
+      case 'cv_present': {
+        const cvA = a.cv_path ? 1 : 0;
+        const cvB = b.cv_path ? 1 : 0;
+        return dir * (cvA - cvB);
+      }
+    }
+  });
+}
+
+export function formatCandidatePackageRangeInr(
+  minLakhs: number | null | undefined,
+  maxLakhs: number | null | undefined,
+): string | null {
+  const hasMin =
+    minLakhs !== null &&
+    minLakhs !== undefined &&
+    Number.isFinite(Number(minLakhs));
+  const hasMax =
+    maxLakhs !== null &&
+    maxLakhs !== undefined &&
+    Number.isFinite(Number(maxLakhs));
+  if (!hasMin && !hasMax) return null;
+
+  const formatVal = (v: number) => String(Math.round(v * 100) / 100);
+
+  if (hasMin && hasMax) {
+    const min = Number(minLakhs);
+    const max = Number(maxLakhs);
+    if (min === max) return `₹ ${formatVal(min)} lakhs per annum`;
+    return `₹ ${formatVal(min)} to ${formatVal(max)} lakhs per annum`;
+  }
+  if (hasMin) return `From ₹ ${formatVal(Number(minLakhs))} lakhs per annum`;
+  return `Up to ₹ ${formatVal(Number(maxLakhs))} lakhs per annum`;
+}
+
+export interface CandidateClosingCountdown {
+  label: string;
+  isUrgent: boolean;
+  isExpired: boolean;
+  remainingMs: number;
+}
+
+export function formatCandidateClosingCountdown(
+  expiresAtIso: string | null | undefined,
+  nowMs = Date.now(),
+): CandidateClosingCountdown {
+  if (!expiresAtIso) {
+    return { label: 'Closed', isUrgent: false, isExpired: true, remainingMs: 0 };
+  }
+  const targetMs = new Date(expiresAtIso).getTime();
+  if (Number.isNaN(targetMs)) {
+    return { label: 'Closed', isUrgent: false, isExpired: true, remainingMs: 0 };
+  }
+  const diffMs = targetMs - nowMs;
+  if (diffMs <= 0) {
+    return { label: 'Closed', isUrgent: false, isExpired: true, remainingMs: 0 };
+  }
+  const totalMinutes = Math.max(1, Math.ceil(diffMs / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  const label =
+    hours > 0
+      ? mins > 0
+        ? `Please answer within ${hours} h ${mins} min`
+        : `Please answer within ${hours} h`
+      : `Please answer within ${mins} min`;
+
+  return {
+    label,
+    isUrgent: diffMs < 2 * 60 * 60 * 1000,
+    isExpired: false,
+    remainingMs: diffMs,
+  };
+}
+
+export function isCandidateOpportunityLive(
+  opp: Pick<CandidateOpportunity, 'expires_at'>,
+  nowMs = Date.now(),
+): boolean {
+  const targetMs = new Date(opp.expires_at).getTime();
+  return !Number.isNaN(targetMs) && targetMs > nowMs;
+}
+
+export function sortCandidateOpportunitiesSoonestFirst<
+  TOpp extends Pick<CandidateOpportunity, 'expires_at'>,
+>(opportunities: ReadonlyArray<TOpp>): TOpp[] {
+  return [...opportunities].sort((a, b) => {
+    const tA = new Date(a.expires_at).getTime();
+    const tB = new Date(b.expires_at).getTime();
+    return (Number.isNaN(tA) ? 0 : tA) - (Number.isNaN(tB) ? 0 : tB);
+  });
+}
+
+export function countUnansweredCandidateOpportunities(
+  opportunities: ReadonlyArray<Pick<CandidateOpportunity, 'expires_at'>>,
+  nowMs = Date.now(),
+): number {
+  return opportunities.filter((opp) => isCandidateOpportunityLive(opp, nowMs))
+    .length;
+}
+
+export function isCandidateOpportunityApplyBlocked(
+  onboardingStatus?:
+    | {
+        education_done?: boolean | null;
+        work_done?: boolean | null;
+        cv_done?: boolean | null;
+      }
+    | null,
+  flags?: {
+    hasEducation?: boolean;
+    hasWork?: boolean;
+    hasCv?: boolean;
+  },
+): boolean {
+  const eduDone = Boolean(onboardingStatus?.education_done || flags?.hasEducation);
+  const workDone = Boolean(onboardingStatus?.work_done || flags?.hasWork);
+  const cvDone = Boolean(onboardingStatus?.cv_done || flags?.hasCv);
+  return !(eduDone && workDone && cvDone);
+}
+
+export const APPLICATION_PROGRESS_STEPS = [
+  'Applied',
+  'Shortlisted',
+  'Interview',
+  'Selected',
+  'Offer made',
+  'Joined',
+] as const;
+
+export type CandidateApplicationStatusTone =
+  | 'blue'
+  | 'green'
+  | 'teal'
+  | 'dark_green'
+  | 'grey';
+
+export interface CandidateApplicationStatusInfo {
+  label: string;
+  tone: CandidateApplicationStatusTone;
+  stepIndex: number;
+  isRejected: boolean;
+}
+
+export function formatCandidateApplicationStatus(
+  stage: OpportunityPipelineStage | string | null | undefined,
+): CandidateApplicationStatusInfo {
+  switch (stage) {
+    case 'shortlisted':
+      return {
+        label: 'Shortlisted',
+        tone: 'green',
+        stepIndex: 1,
+        isRejected: false,
+      };
+    case 'interview':
+      return {
+        label: 'Interview stage',
+        tone: 'teal',
+        stepIndex: 2,
+        isRejected: false,
+      };
+    case 'selected':
+      return {
+        label: 'Selected',
+        tone: 'green',
+        stepIndex: 3,
+        isRejected: false,
+      };
+    case 'offer_made':
+      return {
+        label: 'Offer made',
+        tone: 'dark_green',
+        stepIndex: 4,
+        isRejected: false,
+      };
+    case 'joined':
+      return {
+        label: 'Joined',
+        tone: 'green',
+        stepIndex: 5,
+        isRejected: false,
+      };
+    case 'rejected':
+      return {
+        label: 'Not selected',
+        tone: 'grey',
+        stepIndex: -1,
+        isRejected: true,
+      };
+    default:
+      return {
+        label: 'Applied. Waiting for an update',
+        tone: 'blue',
+        stepIndex: 0,
+        isRejected: false,
+      };
+  }
+}
+
+export function sortCandidateApplicationsNewestFirst<
+  TApp extends Pick<
+    CandidateApplication,
+    'stage_updated_at' | 'applied_at' | 'recipient_id'
+  >,
+>(applications: ReadonlyArray<TApp>): TApp[] {
+  return [...applications].sort((a, b) => {
+    const tA = new Date(a.stage_updated_at || a.applied_at).getTime();
+    const tB = new Date(b.stage_updated_at || b.applied_at).getTime();
+    const safeA = Number.isNaN(tA) ? 0 : tA;
+    const safeB = Number.isNaN(tB) ? 0 : tB;
+    if (safeB !== safeA) return safeB - safeA;
+
+    const appA = new Date(a.applied_at).getTime();
+    const appB = new Date(b.applied_at).getTime();
+    const safeAppA = Number.isNaN(appA) ? 0 : appA;
+    const safeAppB = Number.isNaN(appB) ? 0 : appB;
+    if (safeAppB !== safeAppA) return safeAppB - safeAppA;
+
+    return String(a.recipient_id).localeCompare(String(b.recipient_id));
+  });
+}
+
+export function getMostRecentUpdatedApplication(
+  applications: ReadonlyArray<CandidateApplication>,
+): {
+  application: CandidateApplication;
+  status: CandidateApplicationStatusInfo;
+  summaryText: string;
+} | null {
+  const withUpdates = applications.filter((a) => Boolean(a.pipeline_stage));
+  if (withUpdates.length === 0) return null;
+  const sorted = sortCandidateApplicationsNewestFirst(withUpdates);
+  const latest = sorted[0];
+  const status = formatCandidateApplicationStatus(latest.pipeline_stage);
+  return {
+    application: latest,
+    status,
+    summaryText: `${latest.company}: ${status.label}`,
+  };
+}
+
+

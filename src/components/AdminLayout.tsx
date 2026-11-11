@@ -12,6 +12,7 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  Send,
   Users,
   X,
 } from 'lucide-react';
@@ -23,6 +24,7 @@ export type AdminSection =
   | 'dashboard'
   | 'catalog'
   | 'placement'
+  | 'placement_opportunities'
   | 'staff'
   | 'batches'
   | 'candidates'
@@ -56,6 +58,7 @@ const NAV_ITEMS: Array<{
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'catalog', label: 'Programs & Modules', icon: BookOpen },
   { id: 'placement', label: 'Placement Team', icon: Briefcase },
+  { id: 'placement_opportunities', label: 'Placement', icon: Send },
   { id: 'staff', label: 'Staff', icon: Users },
   { id: 'batches', label: 'Batches', icon: Calendar },
   { id: 'candidates', label: 'Candidates', icon: GraduationCap },

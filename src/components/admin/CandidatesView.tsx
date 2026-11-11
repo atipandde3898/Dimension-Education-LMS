@@ -8,6 +8,7 @@ import type {
 } from '../../types/database';
 import {
   filterAndSortRows,
+  formatCandidateStatusLabel,
   formatConsentStatusLabel,
   formatDbError,
   formatInr,
@@ -39,9 +40,9 @@ interface OrphanLogin {
 }
 
 const STATUS_TEXT_CLASS: Record<CandidateOverview['status'], string> = {
-  onboarding: 'text-amber-700',
-  active: 'text-emerald-700',
-  completed: 'text-blue-700',
+  enrolled: 'text-amber-700',
+  in_training: 'text-emerald-700',
+  certified: 'text-blue-700',
   dropped: 'text-red-700',
 };
 
@@ -103,7 +104,7 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
       supabase
         .from('v_onboarding_status')
         .select(
-          'candidate_id, docs_approved, docs_required, photo_status, consents_required, consents_accepted, onboarding_complete',
+          'candidate_id, docs_approved, docs_required, photo_status, consents_required, consents_accepted, education_done, work_done, cv_done, onboarding_complete',
         ),
     ]);
 
@@ -149,7 +150,13 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
         : statusFilter === 'onboarding_incomplete'
           ? candidates.filter((c) => {
               const onb = onboardingMap[c.candidate_id];
-              return onb ? !onb.onboarding_complete : true;
+              if (!onb) return true;
+              return (
+                !onb.onboarding_complete ||
+                !onb.education_done ||
+                !onb.work_done ||
+                !onb.cv_done
+              );
             })
           : candidates.filter((c) => c.status === statusFilter);
 
@@ -178,7 +185,7 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
       },
       sort.dir,
     );
-  }, [candidates, statusFilter, searchQuery, sort]);
+  }, [candidates, onboardingMap, statusFilter, searchQuery, sort]);
 
   const handleSort = (field: SortField) => {
     setSort((prev) => ({
@@ -292,9 +299,9 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
             [
               { value: 'all', label: 'All' },
               { value: 'onboarding_incomplete', label: 'Onboarding incomplete' },
-              { value: 'onboarding', label: 'Onboarding' },
-              { value: 'active', label: 'Active' },
-              { value: 'completed', label: 'Completed' },
+              { value: 'enrolled', label: 'Enrolled' },
+              { value: 'in_training', label: 'In training' },
+              { value: 'certified', label: 'Certified' },
               { value: 'dropped', label: 'Dropped' },
             ] as Array<{ value: StatusFilter; label: string }>
           ).map((opt) => (
@@ -529,11 +536,11 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span
-                          className={`text-xs font-medium capitalize ${
+                          className={`text-xs font-medium ${
                             STATUS_TEXT_CLASS[cand.status]
                           }`}
                         >
-                          {cand.status}
+                          {formatCandidateStatusLabel(cand.status)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">

@@ -58,7 +58,7 @@ export function CandidateTimetableView({
               Timetable Access Locked
             </h2>
             <p className="text-sm text-slate-600">
-              Complete your profile photo and consent to continue
+              Complete your onboarding to continue
             </p>
           </div>
           {onGoToOnboarding && (

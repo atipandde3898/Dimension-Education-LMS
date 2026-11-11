@@ -3,6 +3,7 @@ export enum UserRole {
   Candidate = 'candidate',
   Sme = 'sme',
   Counsellor = 'counsellor',
+  Placement = 'placement',
 }
 
 export enum BatchMode {
@@ -11,15 +12,21 @@ export enum BatchMode {
 }
 
 export enum CandidateStatus {
-  Onboarding = 'onboarding',
-  Active = 'active',
-  Completed = 'completed',
+  Enrolled = 'enrolled',
+  InTraining = 'in_training',
+  Certified = 'certified',
   Dropped = 'dropped',
 }
 
+export type CandidateStatusValue =
+  | 'enrolled'
+  | 'in_training'
+  | 'certified'
+  | 'dropped';
+
 export interface Profile {
   id: string;
-  role: 'admin' | 'candidate' | 'sme' | 'counsellor';
+  role: 'admin' | 'candidate' | 'sme' | 'counsellor' | 'placement';
   full_name: string;
   email: string;
   phone: string | null;
@@ -76,7 +83,7 @@ export interface Candidate {
   module_id: string;
   batch_id: string | null;
   counsellor_id: string | null;
-  status: 'onboarding' | 'active' | 'completed' | 'dropped';
+  status: CandidateStatusValue;
 }
 
 export interface CandidateOverview {
@@ -85,7 +92,7 @@ export interface CandidateOverview {
   full_name: string;
   email: string;
   phone: string | null;
-  status: 'onboarding' | 'active' | 'completed' | 'dropped';
+  status: CandidateStatusValue;
   program: string | null;
   module: string | null;
   batch_code: string | null;
@@ -101,8 +108,9 @@ export interface CandidateOverview {
 
 export interface DashboardStats {
   total_candidates: number;
-  onboarding: number;
-  active: number;
+  enrolled: number;
+  in_training: number;
+  certified: number;
   total_pending_fees: number;
   overdue_installments: number;
   handed_over: number;
@@ -177,7 +185,54 @@ export interface OnboardingStatus {
   photo_status: PhotoStatusValue | string;
   consents_required: number;
   consents_accepted: number;
+  education_done: boolean;
+  work_done: boolean;
+  cv_done: boolean;
   onboarding_complete: boolean;
+}
+
+export interface CandidateEducation {
+  candidate_id: string;
+  ssc_year: number | null;
+  ssc_percent: number | null;
+  hsc_na: boolean;
+  hsc_year: number | null;
+  hsc_percent: number | null;
+  diploma_na: boolean;
+  diploma_stream: string | null;
+  diploma_year: number | null;
+  diploma_percent: number | null;
+  graduation_na: boolean;
+  graduation_stream: string | null;
+  graduation_degree: string | null;
+  graduation_year: number | null;
+  graduation_percent: number | null;
+  graduation_university: string | null;
+  pg_na: boolean;
+  pg_stream: string | null;
+  pg_degree: string | null;
+  pg_year: number | null;
+  pg_percent: number | null;
+  pg_university: string | null;
+}
+
+export type WorkTypeValue = 'fresher' | 'professional';
+
+export interface CandidateWork {
+  candidate_id: string;
+  work_type: WorkTypeValue;
+  total_exp_years: number | null;
+  sap_consultant_exp_years: number | null;
+  sap_end_user_exp_years: number | null;
+  relevant_domain_exp_years: number | null;
+  current_ctc_lakhs: number | null;
+  notice_period_months: number | null;
+}
+
+export interface CandidateCv {
+  candidate_id: string;
+  storage_path: string;
+  file_name: string;
 }
 
 export interface PendingDocumentWithCandidate extends CandidateDocument {
@@ -281,7 +336,7 @@ export interface SmeBatchCandidate {
   id: string;
   candidate_code: string;
   full_name: string;
-  status: 'onboarding' | 'active' | 'completed' | 'dropped';
+  status: CandidateStatusValue;
   batch_id: string | null;
 }
 
@@ -359,5 +414,128 @@ export interface TicketOverview {
   updated_at: string;
   message_count: number;
 }
+
+export interface CandidateProfileFull {
+  candidate_id: string;
+  candidate_code: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  stage: CandidateStatusValue;
+  program: string | null;
+  module: string | null;
+  batch_code: string | null;
+  ssc_year: number | null;
+  ssc_percent: number | null;
+  hsc_na: boolean | null;
+  hsc_year: number | null;
+  hsc_percent: number | null;
+  diploma_na: boolean | null;
+  diploma_stream: string | null;
+  diploma_year: number | null;
+  diploma_percent: number | null;
+  graduation_na: boolean | null;
+  graduation_stream: string | null;
+  graduation_degree: string | null;
+  graduation_year: number | null;
+  graduation_percent: number | null;
+  graduation_university: string | null;
+  pg_na: boolean | null;
+  pg_stream: string | null;
+  pg_degree: string | null;
+  pg_year: number | null;
+  pg_percent: number | null;
+  pg_university: string | null;
+  work_type: WorkTypeValue | null;
+  total_exp_years: number | null;
+  sap_consultant_exp_years: number | null;
+  sap_end_user_exp_years: number | null;
+  relevant_domain_exp_years: number | null;
+  current_ctc_lakhs: number | null;
+  notice_period_months: number | null;
+  cv_path: string | null;
+  cv_file_name: string | null;
+  photo_path: string | null;
+}
+
+export interface Opportunity {
+  id: string;
+  company: string;
+  job_title: string;
+  description: string | null;
+  jd_path: string | null;
+  package_min_lakhs: number | null;
+  package_max_lakhs: number | null;
+  cancelled: boolean;
+  created_at: string;
+  created_by?: string | null;
+}
+
+export interface CandidateOpportunity {
+  recipient_id: string;
+  opportunity_id: string;
+  company: string;
+  job_title: string;
+  description: string | null;
+  jd_path: string | null;
+  package_min_lakhs: number | null;
+  package_max_lakhs: number | null;
+  sent_at: string;
+  expires_at: string;
+}
+
+export interface CandidateApplication {
+  recipient_id: string;
+  opportunity_id: string;
+  company: string;
+  job_title: string;
+  description: string | null;
+  jd_path: string | null;
+  package_min_lakhs: number | null;
+  package_max_lakhs: number | null;
+  applied_at: string;
+  pipeline_stage: OpportunityPipelineStage | null;
+  stage_updated_at: string | null;
+  cancelled: boolean;
+}
+
+export type OpportunityResponseChoice = 'interested' | 'not_interested';
+
+export type OpportunityResponseState =
+  | 'interested'
+  | 'not_interested'
+  | 'waiting'
+  | 'no_response';
+
+export type OpportunityPipelineStage =
+  | 'shortlisted'
+  | 'interview'
+  | 'selected'
+  | 'offer_made'
+  | 'joined'
+  | 'rejected';
+
+export interface OpportunityResponse {
+  recipient_id: string;
+  opportunity_id: string;
+  company: string;
+  job_title: string;
+  candidate_id: string;
+  candidate_code: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  module: string | null;
+  stage: CandidateStatusValue;
+  sent_at: string;
+  expires_at: string;
+  response: OpportunityResponseChoice | null;
+  responded_at: string | null;
+  pipeline_stage: OpportunityPipelineStage | null;
+  stage_note: string | null;
+  stage_updated_at: string | null;
+  response_state: OpportunityResponseState;
+}
+
 
 

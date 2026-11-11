@@ -19,6 +19,7 @@ const ROLE_DISPLAY: Record<Profile['role'], string> = {
   admin: 'Admin',
   counsellor: 'Counsellor',
   sme: 'SME',
+  placement: 'Placement team',
   candidate: 'Candidate',
 };
 
@@ -214,6 +215,7 @@ export function StaffView({
               { id: 'admin', label: 'Admins' },
               { id: 'counsellor', label: 'Counsellors' },
               { id: 'sme', label: 'SMEs' },
+              { id: 'placement', label: 'Placement team' },
               { id: 'candidate', label: 'Candidates' },
             ] as Array<{ id: RoleFilter; label: string }>
           ).map((tab) => (
@@ -430,6 +432,7 @@ export function StaffView({
               <option value="admin">Admin</option>
               <option value="counsellor">Counsellor</option>
               <option value="sme">SME</option>
+              <option value="placement">Placement team</option>
               <option value="candidate">Candidate</option>
             </select>
           </div>

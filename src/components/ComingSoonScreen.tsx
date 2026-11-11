@@ -15,6 +15,7 @@ const ROLE_LABELS: Record<Profile['role'], string> = {
   candidate: 'Candidate',
   sme: 'Subject Matter Expert (SME)',
   counsellor: 'Academic Counsellor',
+  placement: 'Placement Team',
 };
 
 const ROLE_DESCRIPTIONS: Record<Profile['role'], string> = {
@@ -22,6 +23,7 @@ const ROLE_DESCRIPTIONS: Record<Profile['role'], string> = {
   candidate: 'candidate',
   sme: 'Subject Matter Expert (SME)',
   counsellor: 'academic counsellor',
+  placement: 'placement team member',
 };
 
 export function ComingSoonScreen({

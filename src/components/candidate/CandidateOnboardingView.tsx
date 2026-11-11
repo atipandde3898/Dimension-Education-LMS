@@ -1,7 +1,13 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Eye, Lock, RefreshCw, Upload, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import type { CandidateDocument, DocTypeValue } from '../../types/database';
+import type {
+  CandidateCv,
+  CandidateDocument,
+  CandidateEducation,
+  CandidateWork,
+  DocTypeValue,
+} from '../../types/database';
 import {
   CANDIDATE_DOCS_BUCKET,
   DOC_TYPE_LABELS,
@@ -18,11 +24,19 @@ import {
   DocumentStatusBadge,
 } from '../ui/DocumentWidgets';
 import { CandidateConsentSection } from './CandidateConsentSection';
+import {
+  CandidateCvCard,
+  CandidateEducationCard,
+  CandidateWorkCard,
+} from './CandidateOnboardingExtraCards';
 
 interface CandidateOnboardingViewProps {
   candidateId: string;
   maskedPan: string | null;
   documents: CandidateDocument[];
+  education: CandidateEducation | null;
+  work: CandidateWork | null;
+  cv: CandidateCv | null;
   onRefresh: () => Promise<void>;
 }
 
@@ -47,6 +61,9 @@ export function CandidateOnboardingView({
   candidateId,
   maskedPan,
   documents,
+  education,
+  work,
+  cv,
   onRefresh,
 }: CandidateOnboardingViewProps) {
   // Profile photo image preview before uploading
@@ -297,7 +314,7 @@ export function CandidateOnboardingView({
         </div>
       </section>
 
-      {/* 3 Document Cards */}
+      {/* 4 Document Cards */}
       <div className="space-y-4">
         {DOC_ORDER.map((docType) => {
           const doc = docMap.get(docType);
@@ -610,6 +627,30 @@ export function CandidateOnboardingView({
           );
         })}
       </div>
+
+      {/* Education details */}
+      <CandidateEducationCard
+        candidateId={candidateId}
+        education={education}
+        onRefresh={onRefresh}
+      />
+
+      {/* Work background */}
+      <CandidateWorkCard
+        candidateId={candidateId}
+        work={work}
+        onRefresh={onRefresh}
+      />
+
+      {/* CV */}
+      <CandidateCvCard
+        candidateId={candidateId}
+        cv={cv}
+        onViewCv={(storagePath, title) =>
+          setPreviewDoc({ storagePath, title })
+        }
+        onRefresh={onRefresh}
+      />
 
       {/* Terms and consent Section */}
       <CandidateConsentSection

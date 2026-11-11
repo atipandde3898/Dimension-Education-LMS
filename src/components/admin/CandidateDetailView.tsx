@@ -1,25 +1,34 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Check, Eye, ShieldCheck, User, X } from 'lucide-react';
+import { ArrowLeft, Briefcase, Check, Eye, FileText, GraduationCap, Send, ShieldCheck, User, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type {
   Candidate,
+  CandidateCv,
   CandidateDocument,
+  CandidateEducation,
   CandidateOverview,
   CandidatePan,
+  CandidateWork,
   ConsentAcceptance,
   ConsentClause,
   DocTypeValue,
+  OpportunityResponse,
   Profile,
 } from '../../types/database';
 import {
   CANDIDATE_DOCS_BUCKET,
+  CANDIDATE_STATUS_OPTIONS,
   DOC_TYPE_LABELS,
   REQUIRED_DOC_TYPES,
   buildDocumentApprovePayload,
   buildDocumentRejectPayload,
   computeOnboardingProgress,
+  formatCandidateStatusLabel,
   formatDateTime,
   formatDbError,
+  formatPipelineStageLabel,
+  formatResponseStateLabel,
+  formatTicketDateTime,
   maskPan,
 } from '../../utils/domain';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -43,23 +52,13 @@ interface CandidateDetailViewProps {
 }
 
 const STATUS_STYLES: Record<CandidateOverview['status'], string> = {
-  onboarding: 'text-amber-700',
-  active: 'text-emerald-700',
-  completed: 'text-blue-700',
+  enrolled: 'text-amber-700',
+  in_training: 'text-emerald-700',
+  certified: 'text-blue-700',
   dropped: 'text-red-700',
 };
 
 type CandidateStatusValue = Candidate['status'];
-
-const CANDIDATE_STATUS_OPTIONS: Array<{
-  value: CandidateStatusValue;
-  label: string;
-}> = [
-  { value: 'onboarding', label: 'Onboarding' },
-  { value: 'active', label: 'Active' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'dropped', label: 'Dropped' },
-];
 
 export function CandidateDetailView({
   candidateId,
@@ -80,11 +79,17 @@ export function CandidateDetailView({
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
 
-  // Profile photo & Consent state
+  // Profile photo, Education, Work, CV & Consent state
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [education, setEducation] = useState<CandidateEducation | null>(null);
+  const [work, setWork] = useState<CandidateWork | null>(null);
+  const [cv, setCv] = useState<CandidateCv | null>(null);
   const [consentClauses, setConsentClauses] = useState<ConsentClause[]>([]);
   const [consentAcceptances, setConsentAcceptances] = useState<
     ConsentAcceptance[]
+  >([]);
+  const [candidateOpportunities, setCandidateOpportunities] = useState<
+    OpportunityResponse[]
   >([]);
 
   // Status dropdown state
@@ -110,7 +115,10 @@ export function CandidateDetailView({
     message: string;
   } | null>(null);
   const [approvingDocId, setApprovingDocId] = useState<string | null>(null);
-  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<{
+    storagePath: string;
+    title: string;
+  } | null>(null);
   const [rejectTarget, setRejectTarget] = useState<CandidateDocument | null>(
     null,
   );
@@ -129,9 +137,13 @@ export function CandidateDetailView({
         candRes,
         docsRes,
         panRes,
+        eduRes,
+        workRes,
+        cvRes,
         counsRes,
         clausesRes,
         acceptancesRes,
+        oppsRes,
       ] = await Promise.all([
         client
           .from('v_candidate_overview')
@@ -159,6 +171,25 @@ export function CandidateDetailView({
           .eq('candidate_id', candidateId)
           .maybeSingle(),
         client
+          .from('candidate_education')
+          .select(
+            'candidate_id, ssc_year, ssc_percent, hsc_na, hsc_year, hsc_percent, diploma_na, diploma_stream, diploma_year, diploma_percent, graduation_na, graduation_stream, graduation_degree, graduation_year, graduation_percent, graduation_university, pg_na, pg_stream, pg_degree, pg_year, pg_percent, pg_university',
+          )
+          .eq('candidate_id', candidateId)
+          .maybeSingle(),
+        client
+          .from('candidate_work')
+          .select(
+            'candidate_id, work_type, total_exp_years, sap_consultant_exp_years, sap_end_user_exp_years, relevant_domain_exp_years, current_ctc_lakhs, notice_period_months',
+          )
+          .eq('candidate_id', candidateId)
+          .maybeSingle(),
+        client
+          .from('candidate_cv')
+          .select('candidate_id, storage_path, file_name')
+          .eq('candidate_id', candidateId)
+          .maybeSingle(),
+        client
           .from('profiles')
           .select('id, full_name, email, phone, role, active')
           .eq('role', 'counsellor')
@@ -172,6 +203,13 @@ export function CandidateDetailView({
           .from('consent_acceptances')
           .select('id, candidate_id, clause_id, typed_name, accepted_at')
           .eq('candidate_id', candidateId),
+        client
+          .from('v_opportunity_responses')
+          .select(
+            'recipient_id, opportunity_id, company, job_title, candidate_id, candidate_code, full_name, email, phone, module, stage, sent_at, expires_at, response, responded_at, pipeline_stage, stage_note, stage_updated_at, response_state',
+          )
+          .eq('candidate_id', candidateId)
+          .order('sent_at', { ascending: false }),
       ]);
 
       if (ovRes.error || !ovRes.data) {
@@ -185,10 +223,22 @@ export function CandidateDetailView({
       setOverview(loadedOverview);
       setCandidateRecord((candRes.data as Candidate | null) ?? null);
       setDocuments(loadedDocs);
+      setEducation(
+        eduRes.error
+          ? null
+          : ((eduRes.data as CandidateEducation | null) ?? null),
+      );
+      setWork(
+        workRes.error ? null : ((workRes.data as CandidateWork | null) ?? null),
+      );
+      setCv(cvRes.error ? null : ((cvRes.data as CandidateCv | null) ?? null));
       setActiveCounsellors((counsRes.data as Profile[]) ?? []);
       setConsentClauses((clausesRes.data as ConsentClause[]) ?? []);
       setConsentAcceptances(
         (acceptancesRes.data as ConsentAcceptance[]) ?? [],
+      );
+      setCandidateOpportunities(
+        oppsRes.error ? [] : ((oppsRes.data as OpportunityResponse[]) ?? []),
       );
 
       // Mask PAN immediately so raw PAN never enters component state or DOM
@@ -240,7 +290,7 @@ export function CandidateDetailView({
 
     setStatusFeedback({
       type: 'success',
-      message: `Candidate status updated to ${nextStatus}.`,
+      message: `Candidate status updated to ${formatCandidateStatusLabel(nextStatus)}.`,
     });
     await loadDetail(false);
   };
@@ -411,7 +461,12 @@ export function CandidateDetailView({
                   type="button"
                   onClick={() => {
                     const photoDoc = docMap.get('profile_photo');
-                    if (photoDoc) setPreviewDoc(photoDoc);
+                    if (photoDoc) {
+                      setPreviewTarget({
+                        storagePath: photoDoc.storage_path,
+                        title: DOC_TYPE_LABELS[photoDoc.doc_type],
+                      });
+                    }
                   }}
                   title="Click to view full photo"
                   className="group relative block focus:outline-none"
@@ -442,11 +497,11 @@ export function CandidateDetailView({
                   ·
                 </span>
                 <span
-                  className={`font-medium capitalize ${
+                  className={`font-medium ${
                     STATUS_STYLES[currentStatus]
                   }`}
                 >
-                  {currentStatus}
+                  {formatCandidateStatusLabel(currentStatus)}
                 </span>
               </div>
 
@@ -486,7 +541,12 @@ export function CandidateDetailView({
                     <DocumentStatusBadge status={photoDoc.status} />
                     <button
                       type="button"
-                      onClick={() => setPreviewDoc(photoDoc)}
+                      onClick={() =>
+                        setPreviewTarget({
+                          storagePath: photoDoc.storage_path,
+                          title: DOC_TYPE_LABELS[photoDoc.doc_type],
+                        })
+                      }
                       className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
                     >
                       <Eye className="w-3.5 h-3.5" />
@@ -765,7 +825,12 @@ export function CandidateDetailView({
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setPreviewDoc(doc)}
+                      onClick={() =>
+                        setPreviewTarget({
+                          storagePath: doc.storage_path,
+                          title: label,
+                        })
+                      }
                       aria-label={`View ${label}`}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
                     >
@@ -887,6 +952,373 @@ export function CandidateDetailView({
         )}
       </section>
 
+      {/* Education Section (read-only) */}
+      <section
+        aria-labelledby="candidate-education-heading"
+        className="p-6 bg-white border border-slate-200 rounded-xl space-y-4"
+      >
+        <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+          <GraduationCap className="w-4 h-4 text-[#0B7C7C]" />
+          <div>
+            <h2
+              id="candidate-education-heading"
+              className="text-base font-semibold text-slate-900"
+            >
+              Education
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Academic qualifications submitted during onboarding.
+            </p>
+          </div>
+        </div>
+
+        {!education ? (
+          <p className="text-xs text-slate-400 py-1">
+            Education details not submitted yet.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            {/* SSC */}
+            <div className="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
+              <p className="text-xs font-semibold text-slate-700">
+                SSC (10th Standard)
+              </p>
+              <dl className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <dt className="text-slate-500">Passing year</dt>
+                  <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
+                    {education.ssc_year ?? '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Percentage</dt>
+                  <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
+                    {education.ssc_percent != null
+                      ? `${education.ssc_percent}%`
+                      : '—'}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            {/* HSC */}
+            <div className="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-slate-700">
+                  HSC (12th Standard)
+                </p>
+                {education.hsc_na && (
+                  <span className="px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-600 rounded">
+                    Not applicable
+                  </span>
+                )}
+              </div>
+              {education.hsc_na ? (
+                <p className="text-xs text-slate-500">Not applicable</p>
+              ) : (
+                <dl className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <dt className="text-slate-500">Passing year</dt>
+                    <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
+                      {education.hsc_year ?? '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Percentage</dt>
+                    <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
+                      {education.hsc_percent != null
+                        ? `${education.hsc_percent}%`
+                        : '—'}
+                    </dd>
+                  </div>
+                </dl>
+              )}
+            </div>
+
+            {/* Engineering diploma */}
+            <div className="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-slate-700">
+                  Engineering diploma
+                </p>
+                {education.diploma_na && (
+                  <span className="px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-600 rounded">
+                    Not applicable
+                  </span>
+                )}
+              </div>
+              {education.diploma_na ? (
+                <p className="text-xs text-slate-500">Not applicable</p>
+              ) : (
+                <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <dt className="text-slate-500">Stream</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {education.diploma_stream || '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Passing year</dt>
+                    <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
+                      {education.diploma_year ?? '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Percentage</dt>
+                    <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
+                      {education.diploma_percent != null
+                        ? `${education.diploma_percent}%`
+                        : '—'}
+                    </dd>
+                  </div>
+                </dl>
+              )}
+            </div>
+
+            {/* Graduation */}
+            <div className="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-slate-700">
+                  Graduation
+                </p>
+                {education.graduation_na && (
+                  <span className="px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-600 rounded">
+                    Not applicable
+                  </span>
+                )}
+              </div>
+              {education.graduation_na ? (
+                <p className="text-xs text-slate-500">Not applicable</p>
+              ) : (
+                <dl className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <dt className="text-slate-500">Degree</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {education.graduation_degree || '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Stream</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {education.graduation_stream || '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Passing year</dt>
+                    <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
+                      {education.graduation_year ?? '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Percentage</dt>
+                    <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
+                      {education.graduation_percent != null
+                        ? `${education.graduation_percent}%`
+                        : '—'}
+                    </dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="text-slate-500">University</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {education.graduation_university || '—'}
+                    </dd>
+                  </div>
+                </dl>
+              )}
+            </div>
+
+            {/* Post graduation */}
+            <div className="md:col-span-2 p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-slate-700">
+                  Post graduation
+                </p>
+                {education.pg_na && (
+                  <span className="px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-600 rounded">
+                    Not applicable
+                  </span>
+                )}
+              </div>
+              {education.pg_na ? (
+                <p className="text-xs text-slate-500">Not applicable</p>
+              ) : (
+                <dl className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                  <div>
+                    <dt className="text-slate-500">Degree</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {education.pg_degree || '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Stream</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {education.pg_stream || '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Passing year</dt>
+                    <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
+                      {education.pg_year ?? '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Percentage</dt>
+                    <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
+                      {education.pg_percent != null
+                        ? `${education.pg_percent}%`
+                        : '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">University</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {education.pg_university || '—'}
+                    </dd>
+                  </div>
+                </dl>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Work Background Section (read-only) */}
+      <section
+        aria-labelledby="candidate-work-heading"
+        className="p-6 bg-white border border-slate-200 rounded-xl space-y-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <Briefcase className="w-4 h-4 text-[#0B7C7C]" />
+            <div>
+              <h2
+                id="candidate-work-heading"
+                className="text-base font-semibold text-slate-900"
+              >
+                Work background
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Employment history and SAP / domain experience.
+              </p>
+            </div>
+          </div>
+
+          {work && (
+            <span className="px-2.5 py-1 text-xs font-medium bg-[#E6F6F6] text-[#0B7C7C] rounded-md">
+              {work.work_type === 'fresher'
+                ? 'Fresher'
+                : 'Working professional'}
+            </span>
+          )}
+        </div>
+
+        {!work ? (
+          <p className="text-xs text-slate-400 py-1">
+            Work background not submitted yet.
+          </p>
+        ) : work.work_type === 'fresher' ? (
+          <p className="text-sm text-slate-700">
+            Fresher — no prior full-time work experience.
+          </p>
+        ) : (
+          <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+            <div className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg">
+              <dt className="text-xs text-slate-500">Total experience</dt>
+              <dd className="mt-1 font-mono font-semibold text-slate-900 tabular-nums">
+                {work.total_exp_years ?? 0} yrs
+              </dd>
+            </div>
+            <div className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg">
+              <dt className="text-xs text-slate-500">
+                SAP consultant experience
+              </dt>
+              <dd className="mt-1 font-mono font-semibold text-slate-900 tabular-nums">
+                {work.sap_consultant_exp_years ?? 0} yrs
+              </dd>
+            </div>
+            <div className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg">
+              <dt className="text-xs text-slate-500">SAP end-user experience</dt>
+              <dd className="mt-1 font-mono font-semibold text-slate-900 tabular-nums">
+                {work.sap_end_user_exp_years ?? 0} yrs
+              </dd>
+            </div>
+            <div className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg">
+              <dt className="text-xs text-slate-500">
+                Relevant domain experience
+              </dt>
+              <dd className="mt-1 font-mono font-semibold text-slate-900 tabular-nums">
+                {work.relevant_domain_exp_years ?? 0} yrs
+              </dd>
+            </div>
+            <div className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg">
+              <dt className="text-xs text-slate-500">Current CTC</dt>
+              <dd className="mt-1 font-mono font-semibold text-slate-900 tabular-nums">
+                {work.current_ctc_lakhs != null
+                  ? `₹${work.current_ctc_lakhs} LPA`
+                  : '—'}
+              </dd>
+            </div>
+            <div className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg">
+              <dt className="text-xs text-slate-500">Notice period</dt>
+              <dd className="mt-1 font-mono font-semibold text-slate-900 tabular-nums">
+                {work.notice_period_months != null
+                  ? `${work.notice_period_months} month${work.notice_period_months === 1 ? '' : 's'}`
+                  : '—'}
+              </dd>
+            </div>
+          </dl>
+        )}
+      </section>
+
+      {/* CV Section (read-only with 60s signed URL View) */}
+      <section
+        aria-labelledby="candidate-cv-heading"
+        className="p-6 bg-white border border-slate-200 rounded-xl space-y-4"
+      >
+        <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+          <FileText className="w-4 h-4 text-[#0B7C7C]" />
+          <div>
+            <h2
+              id="candidate-cv-heading"
+              className="text-base font-semibold text-slate-900"
+            >
+              CV
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Resume / CV uploaded by the candidate.
+            </p>
+          </div>
+        </div>
+
+        {!cv ? (
+          <p className="text-xs text-slate-400 py-1">
+            CV has not been uploaded yet.
+          </p>
+        ) : (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <FileText className="w-4 h-4 text-[#0B7C7C] shrink-0" />
+              <span className="text-sm font-medium text-slate-900 truncate">
+                {cv.file_name}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setPreviewTarget({
+                  storagePath: cv.storage_path,
+                  title: `CV — ${cv.file_name}`,
+                })
+              }
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors self-start sm:self-center whitespace-nowrap shrink-0"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              View
+            </button>
+          </div>
+        )}
+      </section>
+
       {/* Fees Section (Fee Plan, Installments Editor, Payments Review) */}
       <CandidateFeesSection
         candidateId={candidateId}
@@ -907,6 +1339,148 @@ export function CandidateDetailView({
         }}
         onHandoverUpdated={() => void loadDetail(false)}
       />
+
+      {/* Opportunities Section (sent opportunities, candidate responses, pipeline stages) */}
+      <section
+        aria-labelledby="candidate-opportunities-heading"
+        className="p-6 bg-white border border-slate-200 rounded-xl space-y-4"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <Send className="w-4 h-4 text-[#0B7C7C]" />
+            <div>
+              <h2
+                id="candidate-opportunities-heading"
+                className="text-base font-semibold text-slate-900"
+              >
+                Opportunities
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Job opportunities sent to this candidate and their placement pipeline status.
+              </p>
+            </div>
+          </div>
+          {candidateOpportunities.length > 0 && (
+            <span className="text-xs font-medium text-slate-600 tabular-nums">
+              {candidateOpportunities.length} sent
+            </span>
+          )}
+        </div>
+
+        {candidateOpportunities.length === 0 ? (
+          <p className="text-xs text-slate-400 py-1">
+            No opportunities have been sent to this candidate yet.
+          </p>
+        ) : (
+          <>
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-[#F5F8FB] border-b border-[#E3E9F0]">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-[#5B6B7F]">
+                      Company
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-[#5B6B7F]">
+                      Job title
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-[#5B6B7F]">
+                      Sent date
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-[#5B6B7F]">
+                      Response
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-[#5B6B7F]">
+                      Pipeline stage
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E3E9F0]">
+                  {candidateOpportunities.map((row) => {
+                    const responseBadge =
+                      row.response_state === 'interested'
+                        ? 'bg-[#E7F6EF] text-[#1F9D6B] border-[#BCE8D3]'
+                        : row.response_state === 'not_interested'
+                          ? 'bg-[#F5F8FB] text-[#5B6B7F] border-[#E3E9F0]'
+                          : row.response_state === 'waiting'
+                            ? 'bg-[#FDF4E0] text-[#C98A0B] border-[#F6DDA3]'
+                            : 'bg-[#FBEAE9] text-[#C2413B] border-[#F4C5C2]';
+
+                    return (
+                      <tr key={row.recipient_id}>
+                        <td className="px-4 py-3 font-medium text-[#0B1F3A]">
+                          {row.company}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {row.job_title}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                          {formatTicketDateTime(row.sent_at)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span
+                            className={`inline-flex px-2.5 py-0.5 text-xs font-semibold border rounded-md ${responseBadge}`}
+                          >
+                            {formatResponseStateLabel(row.response_state)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs font-medium text-slate-800 whitespace-nowrap">
+                          {row.pipeline_stage
+                            ? formatPipelineStageLabel(row.pipeline_stage)
+                            : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="md:hidden divide-y divide-slate-100">
+              {candidateOpportunities.map((row) => {
+                const responseBadge =
+                  row.response_state === 'interested'
+                    ? 'bg-[#E7F6EF] text-[#1F9D6B] border-[#BCE8D3]'
+                    : row.response_state === 'not_interested'
+                      ? 'bg-[#F5F8FB] text-[#5B6B7F] border-[#E3E9F0]'
+                      : row.response_state === 'waiting'
+                        ? 'bg-[#FDF4E0] text-[#C98A0B] border-[#F6DDA3]'
+                        : 'bg-[#FBEAE9] text-[#C2413B] border-[#F4C5C2]';
+
+                return (
+                  <div key={row.recipient_id} className="py-3 first:pt-0 last:pb-0 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900 truncate">
+                          {row.company}
+                        </p>
+                        <p className="text-xs text-slate-600 truncate">
+                          {row.job_title}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex px-2 py-0.5 text-[11px] font-semibold border rounded-md shrink-0 ${responseBadge}`}
+                      >
+                        {formatResponseStateLabel(row.response_state)}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                      <span className="font-mono tabular-nums">
+                        Sent {formatTicketDateTime(row.sent_at)}
+                      </span>
+                      <span className="font-medium text-slate-700">
+                        Stage:{' '}
+                        {row.pipeline_stage
+                          ? formatPipelineStageLabel(row.pipeline_stage)
+                          : '—'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </section>
 
       <CandidateFormModal
         open={editOpen}
@@ -933,13 +1507,11 @@ export function CandidateDetailView({
       />
 
       <DocumentPreviewModal
-        open={Boolean(previewDoc)}
-        storagePath={previewDoc?.storage_path ?? null}
-        title={
-          previewDoc ? DOC_TYPE_LABELS[previewDoc.doc_type] : 'Document Preview'
-        }
+        open={Boolean(previewTarget)}
+        storagePath={previewTarget?.storagePath ?? null}
+        title={previewTarget?.title ?? 'Document Preview'}
         subtitle={`${overview.full_name} (${overview.candidate_code})`}
-        onClose={() => setPreviewDoc(null)}
+        onClose={() => setPreviewTarget(null)}
       />
 
       <RejectDocumentModal

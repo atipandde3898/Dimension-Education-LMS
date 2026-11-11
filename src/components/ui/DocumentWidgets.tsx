@@ -57,6 +57,7 @@ export function DocumentStatusBadge({
 interface DocumentPreviewModalProps {
   open: boolean;
   storagePath: string | null;
+  bucketName?: string;
   title: string;
   subtitle?: string;
   onClose: () => void;
@@ -65,6 +66,7 @@ interface DocumentPreviewModalProps {
 export function DocumentPreviewModal({
   open,
   storagePath,
+  bucketName = CANDIDATE_DOCS_BUCKET,
   title,
   subtitle,
   onClose,
@@ -84,7 +86,7 @@ export function DocumentPreviewModal({
     setImageFailed(false);
 
     const { data, error: signErr } = await client.storage
-      .from(CANDIDATE_DOCS_BUCKET)
+      .from(bucketName)
       .createSignedUrl(storagePath, SIGNED_URL_EXPIRY_SECONDS);
 
     if (signErr || !data?.signedUrl) {
@@ -99,7 +101,7 @@ export function DocumentPreviewModal({
 
     setSignedUrl(data.signedUrl);
     setLoading(false);
-  }, [storagePath]);
+  }, [bucketName, storagePath]);
 
   useEffect(() => {
     if (!open || !storagePath) return;

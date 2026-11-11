@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Briefcase,
   Calendar,
   FileCheck2,
   Home,
@@ -18,6 +19,7 @@ import type { Profile } from '../../types/database';
 export type CandidateSection =
   | 'home'
   | 'onboarding'
+  | 'opportunities'
   | 'fees'
   | 'timetable'
   | 'tickets'
@@ -29,6 +31,7 @@ interface CandidateLayoutProps {
   activeSection: CandidateSection;
   avatarUrl?: string | null;
   isTimetableLocked?: boolean;
+  unansweredOpportunitiesCount?: number;
   onNavigate: (section: CandidateSection) => void;
   onLogout: () => void;
   loggingOut?: boolean;
@@ -42,6 +45,7 @@ const CANDIDATE_NAV: Array<{
 }> = [
   { id: 'home', label: 'Home', icon: Home },
   { id: 'onboarding', label: 'Onboarding', icon: FileCheck2 },
+  { id: 'opportunities', label: 'Opportunities', icon: Briefcase },
   { id: 'fees', label: 'Fees', icon: IndianRupee },
   { id: 'timetable', label: 'Timetable', icon: Calendar },
   { id: 'tickets', label: 'Tickets', icon: MessageSquare },
@@ -65,6 +69,7 @@ export function CandidateLayout({
   activeSection,
   avatarUrl,
   isTimetableLocked = false,
+  unansweredOpportunitiesCount = 0,
   onNavigate,
   onLogout,
   loggingOut = false,
@@ -79,7 +84,8 @@ export function CandidateLayout({
 
   const sectionDescriptions: Record<CandidateSection, string> = {
     home: 'Your enrollment overview, next installments, and onboarding steps.',
-    onboarding: 'Complete your profile photo, document uploads, and consent agreements.',
+    onboarding: 'Complete your profile photo, document uploads, education, work background, CV, and consent agreements.',
+    opportunities: 'Live placement openings shared with you — respond before closing time.',
     fees: 'Installment schedule, fee balance, and payment submissions.',
     timetable: 'Weekly scheduled classes and live session links.',
     tickets: 'Helpdesk requests, support messages, and administrative follow-up.',
@@ -89,6 +95,7 @@ export function CandidateLayout({
   const sectionTitles: Record<CandidateSection, string> = {
     home: 'Student Dashboard',
     onboarding: 'Onboarding & Verification',
+    opportunities: 'Job Opportunities',
     fees: 'Fees & Payments',
     timetable: 'Class Timetable',
     tickets: 'Support Tickets',
@@ -129,8 +136,17 @@ export function CandidateLayout({
                   strokeWidth={1.75}
                 />
                 <span className="flex-1 text-left truncate">{item.label}</span>
+                {item.id === 'opportunities' &&
+                  unansweredOpportunitiesCount > 0 && (
+                    <span
+                      aria-label={`${unansweredOpportunitiesCount} unanswered opportunities`}
+                      className="px-2 py-0.5 text-xs font-semibold rounded-full bg-[#0FA3A3] text-white tabular-nums shrink-0"
+                    >
+                      {unansweredOpportunitiesCount}
+                    </span>
+                  )}
                 {item.id === 'timetable' && isTimetableLocked && (
-                  <span title="Locked until profile photo and consent are completed">
+                  <span title="Complete your onboarding to continue">
                     <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" strokeWidth={1.75} />
                   </span>
                 )}
@@ -218,6 +234,12 @@ export function CandidateLayout({
                       strokeWidth={1.75}
                     />
                     <span className="flex-1 text-left truncate">{item.label}</span>
+                    {item.id === 'opportunities' &&
+                      unansweredOpportunitiesCount > 0 && (
+                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-[#0FA3A3] text-white tabular-nums shrink-0">
+                          {unansweredOpportunitiesCount}
+                        </span>
+                      )}
                     {item.id === 'timetable' && isTimetableLocked && (
                       <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" strokeWidth={1.75} />
                     )}
@@ -297,10 +319,13 @@ export function CandidateLayout({
           type="button"
           onClick={() => setMobileMenuOpen(true)}
           aria-label="More navigation options"
-          className="flex-1 flex flex-col items-center justify-center py-1 px-1 text-[#5B6B7F] hover:text-[#0B1F3A] rounded-lg transition-colors min-h-[44px]"
+          className="relative flex-1 flex flex-col items-center justify-center py-1 px-1 text-[#5B6B7F] hover:text-[#0B1F3A] rounded-lg transition-colors min-h-[44px]"
         >
           <MoreHorizontal className="w-5 h-5 shrink-0" strokeWidth={1.75} />
           <span className="text-[11px] mt-0.5 leading-tight">More</span>
+          {unansweredOpportunitiesCount > 0 && (
+            <span className="absolute top-1 right-3 w-2 h-2 rounded-full bg-[#0FA3A3]" />
+          )}
         </button>
       </nav>
     </div>

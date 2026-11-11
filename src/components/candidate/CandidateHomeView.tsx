@@ -1,28 +1,36 @@
 import {
   AlertCircle,
   ArrowRight,
-  Calendar,
+  Briefcase,
   Check,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
-  GraduationCap,
   IndianRupee,
-  User,
   X,
 } from 'lucide-react';
 import type {
+  CandidateApplication,
+  CandidateCv,
   CandidateDocument,
+  CandidateEducation,
+  CandidateOpportunity,
   CandidateOverview,
+  CandidateWork,
   InstallmentStatus,
   OnboardingStatus,
   Payment,
 } from '../../types/database';
 import {
   findNextDueInstallment,
+  formatCandidateClosingCountdown,
+  formatCandidateStatusLabel,
   formatDate,
   formatInr,
+  formatTicketDateTime,
   getInitials,
   getInstallmentDueRelativeText,
+  getMostRecentUpdatedApplication,
 } from '../../utils/domain';
 import { InstallmentStateBadge } from '../ui/FeeWidgets';
 
@@ -32,8 +40,16 @@ interface CandidateHomeViewProps {
   installments: InstallmentStatus[];
   payments?: Payment[];
   onboardingStatus?: OnboardingStatus | null;
+  education?: CandidateEducation | null;
+  work?: CandidateWork | null;
+  cv?: CandidateCv | null;
   avatarUrl?: string | null;
+  unansweredOpportunitiesCount?: number;
+  soonestOpportunity?: CandidateOpportunity | null;
+  myApplications?: CandidateApplication[];
   onGoToOnboarding: () => void;
+  onGoToOpportunities?: () => void;
+  onGoToMyApplications?: () => void;
   onGoToFees: () => void;
 }
 
@@ -43,10 +59,19 @@ export function CandidateHomeView({
   installments,
   payments = [],
   onboardingStatus,
+  education,
+  work,
+  cv,
   avatarUrl,
+  unansweredOpportunitiesCount = 0,
+  soonestOpportunity = null,
+  myApplications = [],
   onGoToOnboarding,
+  onGoToOpportunities,
+  onGoToMyApplications,
   onGoToFees,
 }: CandidateHomeViewProps) {
+  const latestApplicationUpdate = getMostRecentUpdatedApplication(myApplications);
   const firstName =
     overview.full_name?.trim().split(/\s+/)[0] || overview.full_name || 'Candidate';
   const initials = getInitials(overview.full_name);
@@ -82,6 +107,10 @@ export function CandidateHomeView({
   const photoIdStatus = getDocStatus('photo_id');
   const enrollmentStatus = getDocStatus('enrollment_form');
 
+  const educationDone = Boolean(onboardingStatus?.education_done ?? education);
+  const workDone = Boolean(onboardingStatus?.work_done ?? work);
+  const cvDone = Boolean(onboardingStatus?.cv_done ?? cv);
+
   const consentsAccepted = Number(onboardingStatus?.consents_accepted ?? 0);
   const consentsRequired = Number(onboardingStatus?.consents_required ?? 0);
   const consentAccepted =
@@ -90,7 +119,7 @@ export function CandidateHomeView({
 
   const isOnboardingComplete = Boolean(onboardingStatus?.onboarding_complete);
 
-  // 5 checklist steps for the vertical stepper
+  // 8 checklist steps for the vertical stepper
   const steps = [
     {
       id: 'profile_photo',
@@ -117,6 +146,24 @@ export function CandidateHomeView({
       description: 'Signed registration agreement and module confirmation',
     },
     {
+      id: 'education',
+      title: 'Education details',
+      status: educationDone ? 'Done' : 'Missing',
+      description: 'Academic qualifications from SSC to graduation / PG',
+    },
+    {
+      id: 'work',
+      title: 'Work background',
+      status: workDone ? 'Done' : 'Missing',
+      description: 'Fresher status or professional SAP / domain experience',
+    },
+    {
+      id: 'cv',
+      title: 'CV',
+      status: cvDone ? 'Done' : 'Missing',
+      description: 'Updated resume or CV in PDF, DOC, or DOCX format',
+    },
+    {
       id: 'consent',
       title: 'Terms & Institutional Consent',
       status: consentStatus,
@@ -125,7 +172,10 @@ export function CandidateHomeView({
   ];
 
   const completedStepsCount = steps.filter(
-    (s) => s.status === 'Approved' || s.status === 'Accepted',
+    (s) =>
+      s.status === 'Approved' ||
+      s.status === 'Accepted' ||
+      s.status === 'Done',
   ).length;
   const progressPercent = Math.round((completedStepsCount / steps.length) * 100);
 
@@ -164,8 +214,8 @@ export function CandidateHomeView({
                 {overview.candidate_code}
               </span>
               <span className="text-[#8E9BAE]" aria-hidden="true">·</span>
-              <span className="text-[#5B6B7F] font-medium capitalize">
-                {overview.status}
+              <span className="text-[#5B6B7F] font-medium">
+                {formatCandidateStatusLabel(overview.status)}
               </span>
             </div>
 
@@ -211,6 +261,107 @@ export function CandidateHomeView({
         </div>
       </section>
 
+      {/* Opportunities waiting card (shown only when N > 0) */}
+      {unansweredOpportunitiesCount > 0 && onGoToOpportunities && (
+        <section
+          aria-label="Opportunities waiting for your response"
+          className="p-5 sm:p-6 bg-white border border-[#0FA3A3]/40 rounded-xl shadow-soft flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        >
+          <div className="flex items-start gap-4 min-w-0">
+            <div className="w-11 h-11 rounded-xl bg-[#E6F6F6] text-[#0B7C7C] flex items-center justify-center shrink-0">
+              <Briefcase className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold font-display text-[#0B1F3A]">
+                Opportunities waiting for you: {unansweredOpportunitiesCount}
+              </h2>
+              {soonestOpportunity && (
+                <p className="mt-1 text-xs sm:text-sm text-[#5B6B7F]">
+                  Soonest closing:{' '}
+                  <span className="font-semibold text-[#0B1F3A]">
+                    {soonestOpportunity.company} — {soonestOpportunity.job_title}
+                  </span>{' '}
+                  ·{' '}
+                  <span
+                    className={`font-semibold ${
+                      formatCandidateClosingCountdown(soonestOpportunity.expires_at)
+                        .isUrgent
+                        ? 'text-[#C98A0B]'
+                        : 'text-[#0B7C7C]'
+                    }`}
+                  >
+                    {
+                      formatCandidateClosingCountdown(soonestOpportunity.expires_at)
+                        .label
+                    }
+                  </span>{' '}
+                  <span className="font-mono text-xs text-[#5B6B7F] tabular-nums">
+                    ({formatTicketDateTime(soonestOpportunity.expires_at)})
+                  </span>
+                </p>
+              )}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onGoToOpportunities}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-white bg-[#0B1F3A] hover:bg-[#081629] rounded-lg transition-colors whitespace-nowrap shrink-0 self-start sm:self-center"
+          >
+            View opportunities
+            <ArrowRight className="w-4 h-4 text-[#0FA3A3]" />
+          </button>
+        </section>
+      )}
+
+      {/* My applications summary card */}
+      {onGoToMyApplications && (
+        <section
+          aria-label="My applications"
+          className="p-5 sm:p-6 bg-white border border-[#E3E9F0] rounded-xl shadow-soft flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        >
+          <div className="flex items-start gap-4 min-w-0">
+            <div className="w-11 h-11 rounded-xl bg-[#E8F0FA] text-[#2F6FB0] flex items-center justify-center shrink-0">
+              <ClipboardCheck className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h2 className="text-base sm:text-lg font-bold font-display text-[#0B1F3A]">
+                  My applications
+                </h2>
+                <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-[#E8F0FA] text-[#2F6FB0] border border-[#BFD7F2] tabular-nums">
+                  {myApplications.length}
+                </span>
+              </div>
+
+              {latestApplicationUpdate ? (
+                <p className="mt-1 text-xs sm:text-sm text-[#5B6B7F]">
+                  Most recent update:{' '}
+                  <span className="font-semibold text-[#0B1F3A]">
+                    {latestApplicationUpdate.summaryText}
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs sm:text-sm text-[#5B6B7F]">
+                  {myApplications.length === 0
+                    ? 'You have not applied to any opportunities yet.'
+                    : 'Waiting for placement team status updates on your applications.'}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onGoToMyApplications}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-[#0B1F3A] bg-white border border-[#E3E9F0] hover:bg-[#F5F8FB] rounded-lg transition-colors whitespace-nowrap shrink-0 self-start sm:self-center"
+          >
+            View my applications
+            <ArrowRight className="w-4 h-4 text-[#0FA3A3]" />
+          </button>
+        </section>
+      )}
+
       {/* 2. Onboarding Checklist as a Vertical Stepper with Progress Ring & Prominent Continue Button */}
       <section
         aria-labelledby="onboarding-stepper-heading"
@@ -243,7 +394,7 @@ export function CandidateHomeView({
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center select-none">
                 <span className="font-display font-bold text-sm text-[#0B1F3A] leading-tight">
-                  {completedStepsCount}/5
+                  {completedStepsCount}/{steps.length}
                 </span>
               </div>
             </div>
@@ -262,14 +413,14 @@ export function CandidateHomeView({
                   </span>
                 ) : (
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#FDF4E0] text-[#C98A0B] border border-[#C98A0B]/30">
-                    {5 - completedStepsCount} step{5 - completedStepsCount === 1 ? '' : 's'} remaining
+                    {steps.length - completedStepsCount} step{steps.length - completedStepsCount === 1 ? '' : 's'} remaining
                   </span>
                 )}
               </div>
               <p className="mt-1 text-sm text-[#5B6B7F]">
                 {isOnboardingComplete
-                  ? 'All mandatory identity documents and policy consents are approved.'
-                  : 'Complete your profile photo, identity documents, and terms of consent to unlock full portal access.'}
+                  ? 'All mandatory identity documents, background details, CV, and policy consents are complete.'
+                  : 'Complete your documents, education, work background, CV, and consent to unlock full portal access.'}
               </p>
             </div>
           </div>
@@ -279,7 +430,7 @@ export function CandidateHomeView({
             onClick={onGoToOnboarding}
             className="px-5 py-2.5 text-sm font-semibold text-white bg-[#0B1F3A] hover:bg-[#081629] rounded-lg transition-colors flex items-center justify-center gap-2 shadow-xs shrink-0 self-start sm:self-center"
           >
-            <span>{isOnboardingComplete ? 'Review Documents' : 'Continue'}</span>
+            <span>{isOnboardingComplete ? 'Review Onboarding' : 'Continue'}</span>
             <ArrowRight className="w-4 h-4 text-[#0FA3A3]" />
           </button>
         </div>
@@ -287,7 +438,10 @@ export function CandidateHomeView({
         {/* Vertical Stepper */}
         <div className="relative pl-2 sm:pl-4 space-y-6">
           {steps.map((step, index) => {
-            const isDone = step.status === 'Approved' || step.status === 'Accepted';
+            const isDone =
+              step.status === 'Approved' ||
+              step.status === 'Accepted' ||
+              step.status === 'Done';
             const isPending = step.status === 'Pending';
             const isRejected = step.status === 'Rejected';
             const isLast = index === steps.length - 1;

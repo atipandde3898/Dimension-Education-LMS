@@ -3,10 +3,15 @@ import { supabase } from '../../lib/supabase';
 import type {
   Batch,
   Candidate,
+  CandidateApplication,
+  CandidateCv,
   CandidateDocument,
+  CandidateEducation,
   CandidateFeesSummary,
+  CandidateOpportunity,
   CandidateOverview,
   CandidatePan,
+  CandidateWork,
   ClassSession,
   FeePlan,
   InstallmentStatus,
@@ -17,10 +22,13 @@ import type {
 } from '../../types/database';
 import {
   CANDIDATE_DOCS_BUCKET,
+  countUnansweredCandidateOpportunities,
   formatDbError,
+  isCandidateOpportunityLive,
   isCandidatePortalBlocked,
   isMandatoryOnboardingIncomplete,
   maskPan,
+  sortCandidateOpportunitiesSoonestFirst,
 } from '../../utils/domain';
 import { ComingSoonScreen } from '../ComingSoonScreen';
 import { EmptyState, ErrorState, TableSkeleton } from '../ui/States';
@@ -31,6 +39,10 @@ import {
   type CandidateSection,
 } from './CandidateLayout';
 import { CandidateOnboardingView } from './CandidateOnboardingView';
+import {
+  CandidateOpportunitiesView,
+  type CandidateOpportunitiesTab,
+} from './CandidateOpportunitiesView';
 import { CandidateProfileView } from './CandidateProfileView';
 import { CandidateTicketsView } from './CandidateTicketsView';
 import { CandidateTimetableView } from './CandidateTimetableView';
@@ -49,12 +61,17 @@ export function CandidatePortal({
   loggingOut = false,
 }: CandidatePortalProps) {
   const [activeSection, setActiveSection] = useState<CandidateSection>('home');
+  const [opportunitiesTab, setOpportunitiesTab] =
+    useState<CandidateOpportunitiesTab>('open');
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [overview, setOverview] = useState<CandidateOverview | null>(null);
   const [documents, setDocuments] = useState<CandidateDocument[]>([]);
   const [maskedPan, setMaskedPan] = useState<string | null>(null);
   const [onboardingStatus, setOnboardingStatus] =
     useState<OnboardingStatus | null>(null);
+  const [education, setEducation] = useState<CandidateEducation | null>(null);
+  const [work, setWork] = useState<CandidateWork | null>(null);
+  const [cv, setCv] = useState<CandidateCv | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [hasCheckedMandatoryRedirect, setHasCheckedMandatoryRedirect] =
     useState(false);
@@ -71,6 +88,20 @@ export function CandidatePortal({
   const [assignedBatch, setAssignedBatch] = useState<Batch | null>(null);
   const [timetableSlots, setTimetableSlots] = useState<TimetableSlot[]>([]);
   const [batchSessions, setBatchSessions] = useState<ClassSession[]>([]);
+
+  // Open unanswered placement opportunities & submitted applications
+  const [candidateOpportunities, setCandidateOpportunities] = useState<
+    CandidateOpportunity[]
+  >([]);
+  const [opportunitiesError, setOpportunitiesError] = useState<string | null>(
+    null,
+  );
+  const [myApplications, setMyApplications] = useState<CandidateApplication[]>(
+    [],
+  );
+  const [applicationsError, setApplicationsError] = useState<string | null>(
+    null,
+  );
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -106,6 +137,10 @@ export function CandidatePortal({
         setOverview(null);
         setDocuments([]);
         setMaskedPan(null);
+        setOnboardingStatus(null);
+        setEducation(null);
+        setWork(null);
+        setCv(null);
         setFeePlan(null);
         setFeeSummary(null);
         setInstallments([]);
@@ -113,6 +148,10 @@ export function CandidatePortal({
         setAssignedBatch(null);
         setTimetableSlots([]);
         setBatchSessions([]);
+        setCandidateOpportunities([]);
+        setOpportunitiesError(null);
+        setMyApplications([]);
+        setApplicationsError(null);
         setLoading(false);
         setRefreshing(false);
         return;
@@ -161,7 +200,7 @@ export function CandidatePortal({
       const onboardingPromise = client
         .from('v_onboarding_status')
         .select(
-          'candidate_id, docs_approved, docs_required, photo_status, consents_required, consents_accepted, onboarding_complete',
+          'candidate_id, docs_approved, docs_required, photo_status, consents_required, consents_accepted, education_done, work_done, cv_done, onboarding_complete',
         )
         .eq('candidate_id', cand.id)
         .maybeSingle();
@@ -170,6 +209,9 @@ export function CandidatePortal({
         ovRes,
         docsRes,
         panRes,
+        eduRes,
+        workRes,
+        cvRes,
         feeSummaryRes,
         feePlanRes,
         instStatusRes,
@@ -178,6 +220,8 @@ export function CandidatePortal({
         slotsRes,
         sessionsRes,
         onbRes,
+        oppsRes,
+        appsRes,
       ] = await Promise.all([
         client
           .from('v_candidate_overview')
@@ -195,6 +239,25 @@ export function CandidatePortal({
         client
           .from('candidate_pan')
           .select('candidate_id, pan_number')
+          .eq('candidate_id', cand.id)
+          .maybeSingle(),
+        client
+          .from('candidate_education')
+          .select(
+            'candidate_id, ssc_year, ssc_percent, hsc_na, hsc_year, hsc_percent, diploma_na, diploma_stream, diploma_year, diploma_percent, graduation_na, graduation_stream, graduation_degree, graduation_year, graduation_percent, graduation_university, pg_na, pg_stream, pg_degree, pg_year, pg_percent, pg_university',
+          )
+          .eq('candidate_id', cand.id)
+          .maybeSingle(),
+        client
+          .from('candidate_work')
+          .select(
+            'candidate_id, work_type, total_exp_years, sap_consultant_exp_years, sap_end_user_exp_years, relevant_domain_exp_years, current_ctc_lakhs, notice_period_months',
+          )
+          .eq('candidate_id', cand.id)
+          .maybeSingle(),
+        client
+          .from('candidate_cv')
+          .select('candidate_id, storage_path, file_name')
           .eq('candidate_id', cand.id)
           .maybeSingle(),
         client
@@ -223,6 +286,13 @@ export function CandidatePortal({
         slotsPromise,
         sessionsPromise,
         onboardingPromise,
+        client
+          .from('v_candidate_opportunities')
+          .select(
+            'recipient_id, opportunity_id, company, job_title, description, jd_path, package_min_lakhs, package_max_lakhs, sent_at, expires_at',
+          )
+          .order('expires_at', { ascending: true }),
+        client.rpc('my_applications'),
       ]);
 
       // Note: fee_plans direct read is optional if RLS restricts candidates to v_candidate_fees
@@ -265,10 +335,22 @@ export function CandidatePortal({
 
       const loadedDocs = (docsRes.data as CandidateDocument[]) ?? [];
       const loadedOnboarding = (onbRes.data as OnboardingStatus | null) ?? null;
+      const loadedEducation = eduRes.error
+        ? null
+        : ((eduRes.data as CandidateEducation | null) ?? null);
+      const loadedWork = workRes.error
+        ? null
+        : ((workRes.data as CandidateWork | null) ?? null);
+      const loadedCv = cvRes.error
+        ? null
+        : ((cvRes.data as CandidateCv | null) ?? null);
 
       setOverview((ovRes.data as CandidateOverview | null) ?? fallbackOverview);
       setDocuments(loadedDocs);
       setOnboardingStatus(loadedOnboarding);
+      setEducation(loadedEducation);
+      setWork(loadedWork);
+      setCv(loadedCv);
       setFeeSummary(
         (feeSummaryRes.data as CandidateFeesSummary | null) ?? null,
       );
@@ -282,6 +364,22 @@ export function CandidatePortal({
         slotsRes.error ? [] : ((slotsRes.data as TimetableSlot[]) ?? []),
       );
       setBatchSessions((sessionsRes.data as ClassSession[]) ?? []);
+      if (oppsRes.error) {
+        setOpportunitiesError(formatDbError(oppsRes.error));
+        setCandidateOpportunities([]);
+      } else {
+        setOpportunitiesError(null);
+        setCandidateOpportunities(
+          (oppsRes.data as CandidateOpportunity[]) ?? [],
+        );
+      }
+      if (appsRes.error) {
+        setApplicationsError(formatDbError(appsRes.error));
+        setMyApplications([]);
+      } else {
+        setApplicationsError(null);
+        setMyApplications((appsRes.data as CandidateApplication[]) ?? []);
+      }
 
       // Signed URL for profile photo avatar
       const photoDoc = loadedDocs.find((d) => d.doc_type === 'profile_photo');
@@ -294,11 +392,16 @@ export function CandidatePortal({
         setAvatarUrl(null);
       }
 
-      // Mandatory redirect rule: Until profile photo uploaded AND all required consents accepted,
+      // Mandatory redirect rule: Until profile photo, consents, education, work, and CV are all completed,
       // redirect to onboarding right after login.
       const mandatoryIncomplete = isMandatoryOnboardingIncomplete(
         loadedOnboarding,
         loadedDocs,
+        {
+          hasEducation: Boolean(loadedEducation),
+          hasWork: Boolean(loadedWork),
+          hasCv: Boolean(loadedCv),
+        },
       );
       if (mandatoryIncomplete && !hasCheckedMandatoryRedirect) {
         setActiveSection('onboarding');
@@ -321,7 +424,25 @@ export function CandidatePortal({
   const isTimetableLocked = isMandatoryOnboardingIncomplete(
     onboardingStatus,
     documents,
+    {
+      hasEducation: Boolean(education),
+      hasWork: Boolean(work),
+      hasCv: Boolean(cv),
+    },
   );
+
+  const handleRemoveOpportunity = useCallback((recipientId: string) => {
+    setCandidateOpportunities((prev) =>
+      prev.filter((o) => o.recipient_id !== recipientId),
+    );
+  }, []);
+
+  const handleNavigateSection = useCallback((section: CandidateSection) => {
+    if (section === 'opportunities') {
+      setOpportunitiesTab('open');
+    }
+    setActiveSection(section);
+  }, []);
 
   if (
     !loading &&
@@ -338,16 +459,25 @@ export function CandidatePortal({
     );
   }
 
+  const unansweredOpportunitiesCount =
+    countUnansweredCandidateOpportunities(candidateOpportunities);
+
+  const soonestWaitingOpportunity =
+    sortCandidateOpportunitiesSoonestFirst(
+      candidateOpportunities.filter((o) => isCandidateOpportunityLive(o)),
+    )[0] ?? null;
+
   return (
     <CandidateLayout
       profile={profile}
       candidateCode={candidate?.candidate_code}
       activeSection={activeSection}
-      onNavigate={setActiveSection}
+      onNavigate={handleNavigateSection}
       onLogout={onLogout}
       loggingOut={loggingOut}
       avatarUrl={avatarUrl}
       isTimetableLocked={isTimetableLocked}
+      unansweredOpportunitiesCount={unansweredOpportunitiesCount}
     >
       {loading ? (
         <TableSkeleton rows={5} columns={4} />
@@ -371,8 +501,22 @@ export function CandidatePortal({
           installments={installments}
           payments={payments}
           onboardingStatus={onboardingStatus}
+          education={education}
+          work={work}
+          cv={cv}
           avatarUrl={avatarUrl}
+          unansweredOpportunitiesCount={unansweredOpportunitiesCount}
+          soonestOpportunity={soonestWaitingOpportunity}
+          myApplications={myApplications}
           onGoToOnboarding={() => setActiveSection('onboarding')}
+          onGoToOpportunities={() => {
+            setOpportunitiesTab('open');
+            setActiveSection('opportunities');
+          }}
+          onGoToMyApplications={() => {
+            setOpportunitiesTab('my_applications');
+            setActiveSection('opportunities');
+          }}
           onGoToFees={() => setActiveSection('fees')}
         />
       ) : activeSection === 'onboarding' ? (
@@ -380,7 +524,28 @@ export function CandidatePortal({
           candidateId={candidate.id}
           maskedPan={maskedPan}
           documents={documents}
+          education={education}
+          work={work}
+          cv={cv}
           onRefresh={() => loadCandidateWorkspace(false)}
+        />
+      ) : activeSection === 'opportunities' ? (
+        <CandidateOpportunitiesView
+          candidateId={candidate.id}
+          activeTab={opportunitiesTab}
+          onChangeTab={setOpportunitiesTab}
+          opportunities={candidateOpportunities}
+          opportunitiesError={opportunitiesError}
+          applications={myApplications}
+          applicationsError={applicationsError}
+          cv={cv}
+          onboardingStatus={onboardingStatus}
+          education={education}
+          work={work}
+          onGoToOnboarding={() => setActiveSection('onboarding')}
+          onRemoveOpportunity={handleRemoveOpportunity}
+          onRefresh={() => loadCandidateWorkspace(false)}
+          refreshing={refreshing}
         />
       ) : activeSection === 'fees' ? (
         <CandidateFeesView
