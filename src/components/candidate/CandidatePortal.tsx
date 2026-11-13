@@ -226,7 +226,7 @@ export function CandidatePortal({
         client
           .from('v_candidate_overview')
           .select(
-            'candidate_id, candidate_code, full_name, email, phone, status, program, module, batch_code, batch_mode, counsellor, net_fee, paid, pending, handed_over, handover_date, placement_member',
+            'candidate_id, candidate_code, full_name, email, phone, status, program, module, batch_code, batch_mode, counsellor, certification_code, net_fee, paid, pending, handed_over, handover_date, placement_member',
           )
           .eq('candidate_id', cand.id)
           .maybeSingle(),
@@ -325,6 +325,7 @@ export function CandidatePortal({
         batch_code: null,
         batch_mode: null,
         counsellor: null,
+        certification_code: cand.certification_code ?? null,
         net_fee: 0,
         paid: 0,
         pending: 0,

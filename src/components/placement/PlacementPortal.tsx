@@ -64,7 +64,7 @@ export function PlacementPortal({
       client
         .from('v_candidate_profile_full')
         .select(
-          'candidate_id, candidate_code, full_name, email, phone, stage, program, module, batch_code, ssc_year, ssc_percent, hsc_na, hsc_year, hsc_percent, diploma_na, diploma_stream, diploma_year, diploma_percent, graduation_na, graduation_stream, graduation_degree, graduation_year, graduation_percent, graduation_university, pg_na, pg_stream, pg_degree, pg_year, pg_percent, pg_university, work_type, total_exp_years, sap_consultant_exp_years, sap_end_user_exp_years, relevant_domain_exp_years, current_ctc_lakhs, notice_period_months, cv_path, cv_file_name, photo_path',
+          'candidate_id, candidate_code, full_name, email, phone, stage, program, module, batch_code, certification_code, ssc_year, ssc_percent, hsc_na, hsc_year, hsc_percent, diploma_na, diploma_stream, diploma_year, diploma_percent, graduation_na, graduation_stream, graduation_degree, graduation_year, graduation_percent, graduation_university, pg_na, pg_stream, pg_degree, pg_year, pg_percent, pg_university, work_type, total_exp_years, sap_consultant_exp_years, sap_end_user_exp_years, relevant_domain_exp_years, current_ctc_lakhs, notice_period_months, cv_path, cv_file_name, photo_path',
         ),
       client
         .from('opportunities')

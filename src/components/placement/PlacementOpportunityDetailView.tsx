@@ -31,6 +31,8 @@ import {
   formatPipelineStageLabel,
   formatTicketDateTime,
   formatTimeLeft,
+  isClosedRejectionStage,
+  shouldAllowPipelineStageEmail,
 } from '../../utils/domain';
 import {
   type BundleExportProgress,
@@ -71,14 +73,18 @@ function ResponseRowPipelineEditor({
 }) {
   const [stage, setStage] = useState<string>(row.pipeline_stage ?? '');
   const [note, setNote] = useState<string>(row.stage_note ?? '');
+  const [sendEmail, setSendEmail] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const showEmailCheckbox = shouldAllowPipelineStageEmail(stage);
+
   const isDirty =
     stage !== (row.pipeline_stage ?? '') ||
-    note.trim() !== (row.stage_note ?? '').trim();
+    note.trim() !== (row.stage_note ?? '').trim() ||
+    (showEmailCheckbox && sendEmail);
 
-  const handleSave = async (nextStage?: string) => {
+  const handleSave = async (nextStage?: string, forceEmail?: boolean) => {
     const client = supabase;
     if (!client) return;
     const chosenStage = nextStage ?? stage;
@@ -90,10 +96,15 @@ function ResponseRowPipelineEditor({
     setSaving(true);
     setError(null);
 
+    const willEmail =
+      shouldAllowPipelineStageEmail(chosenStage) &&
+      (forceEmail !== undefined ? forceEmail : sendEmail);
+
     const { error: rpcErr } = await client.rpc('set_pipeline_stage', {
       p_recipient: row.recipient_id,
       p_stage: chosenStage,
       p_note: note.trim() || null,
+      p_email: willEmail,
     });
 
     setSaving(false);
@@ -103,13 +114,14 @@ function ResponseRowPipelineEditor({
       return;
     }
 
+    setSendEmail(false);
     onSaved(
-      `Updated ${row.full_name} to ${formatPipelineStageLabel(chosenStage)}.`,
+      `Updated ${row.full_name} to ${formatPipelineStageLabel(chosenStage)}${willEmail ? ' with email notification' : ''}.`,
     );
   };
 
   return (
-    <div className="space-y-1.5 min-w-[260px]">
+    <div className="space-y-1.5 min-w-[280px]">
       <div className="flex flex-wrap items-center gap-2">
         <select
           aria-label={`Pipeline stage for ${row.full_name}`}
@@ -118,9 +130,14 @@ function ResponseRowPipelineEditor({
           onChange={(e) => {
             const val = e.target.value;
             setStage(val);
+            setSendEmail(false);
             if (error) setError(null);
             if (val && val !== (row.pipeline_stage ?? '')) {
-              void handleSave(val);
+              // For stages without an email option, save immediately;
+              // for Shortlisted / No show / Rejected, let the user decide whether to email first.
+              if (!shouldAllowPipelineStageEmail(val)) {
+                void handleSave(val, false);
+              }
             }
           }}
           className="px-2.5 py-1.5 text-xs font-medium bg-white border border-[#E3E9F0] rounded-lg"
@@ -146,10 +163,10 @@ function ResponseRowPipelineEditor({
           className="flex-1 min-w-[120px] px-2.5 py-1.5 text-xs bg-white border border-[#E3E9F0] rounded-lg"
         />
 
-        {isDirty && stage && (
+        {(isDirty || (showEmailCheckbox && stage)) && (
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || !stage}
             onClick={() => void handleSave()}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-[#0B1F3A] hover:bg-[#081629] rounded-lg disabled:opacity-50"
           >
@@ -158,6 +175,19 @@ function ResponseRowPipelineEditor({
           </button>
         )}
       </div>
+
+      {showEmailCheckbox && (
+        <label className="inline-flex items-center gap-2 text-xs text-[#0B1F3A] bg-[#F5F8FB] px-2.5 py-1.5 rounded-lg border border-[#E3E9F0] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={sendEmail}
+            disabled={saving}
+            onChange={(e) => setSendEmail(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-slate-300 text-[#0FA3A3] focus:ring-[#0FA3A3]"
+          />
+          <span>Email the candidate about this change</span>
+        </label>
+      )}
 
       {error && (
         <p role="alert" className="text-[11px] text-[#C2413B]">
@@ -218,8 +248,11 @@ export function PlacementOpportunityDetailView({
 
   const stageCounts = useMemo(() => {
     const counts: Record<OpportunityPipelineStage, number> = {
+      profile_shared: 0,
       shortlisted: 0,
       interview: 0,
+      on_hold: 0,
+      no_show: 0,
       selected: 0,
       offer_made: 0,
       joined: 0,
@@ -243,6 +276,8 @@ export function PlacementOpportunityDetailView({
       }
       if (stageFilter === 'unassigned') {
         if (r.response_state !== 'interested' || r.pipeline_stage) return false;
+      } else if (stageFilter === 'closed_rejected') {
+        if (!isClosedRejectionStage(r.pipeline_stage)) return false;
       } else if (stageFilter !== 'all') {
         if (r.pipeline_stage !== stageFilter) return false;
       }
@@ -328,9 +363,13 @@ export function PlacementOpportunityDetailView({
         ? interestedResponses
         : downloadStageFilter === 'unassigned'
           ? interestedResponses.filter((r) => !r.pipeline_stage)
-          : interestedResponses.filter(
-              (r) => r.pipeline_stage === downloadStageFilter,
-            );
+          : downloadStageFilter === 'closed_rejected'
+            ? interestedResponses.filter((r) =>
+                isClosedRejectionStage(r.pipeline_stage),
+              )
+            : interestedResponses.filter(
+                (r) => r.pipeline_stage === downloadStageFilter,
+              );
 
     if (subset.length === 0) {
       setExportError(
@@ -499,6 +538,10 @@ export function PlacementOpportunityDetailView({
                   {opt.label} ({stageCounts.counts[opt.value]})
                 </option>
               ))}
+              <option value="closed_rejected">
+                Closed / Rejected &amp; No show (
+                {stageCounts.counts.rejected + stageCounts.counts.no_show})
+              </option>
             </select>
           </div>
 
@@ -630,6 +673,9 @@ export function PlacementOpportunityDetailView({
                 {opt.label}
               </option>
             ))}
+            <option value="closed_rejected">
+              Closed / Rejected &amp; No show
+            </option>
           </select>
         </div>
       </div>

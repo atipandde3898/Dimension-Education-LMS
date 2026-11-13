@@ -165,6 +165,13 @@ export function CandidateProfileView({
                 {overview.counsellor || '—'}
               </dd>
             </div>
+
+            <div>
+              <dt className="text-xs text-slate-500 font-medium">Certification code</dt>
+              <dd className="mt-1 font-mono text-sm font-semibold text-slate-900 tabular-nums">
+                {overview.certification_code || '—'}
+              </dd>
+            </div>
           </dl>
         </div>
 

@@ -133,6 +133,11 @@ export function PlacementCandidateProfileView({
               >
                 {formatCandidateStatusLabel(candidate.stage)}
               </span>
+              {candidate.certification_code && (
+                <span className="font-mono font-medium text-xs px-2.5 py-0.5 bg-[#E8F0FA] text-[#2F6FB0] border border-[#BFD7F2] rounded-md tabular-nums">
+                  Cert: {candidate.certification_code}
+                </span>
+              )}
             </div>
 
             <h1 className="text-2xl font-bold font-display text-[#0B1F3A] tracking-tight">
@@ -154,7 +159,7 @@ export function PlacementCandidateProfileView({
           </div>
         </div>
 
-        <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-5 border-t border-[#E3E9F0] text-sm">
+        <dl className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-5 border-t border-[#E3E9F0] text-sm">
           <div>
             <dt className="text-xs text-[#5B6B7F]">Program</dt>
             <dd className="mt-0.5 font-medium text-[#0B1F3A]">
@@ -171,6 +176,12 @@ export function PlacementCandidateProfileView({
             <dt className="text-xs text-[#5B6B7F]">Batch</dt>
             <dd className="mt-0.5 font-mono font-medium text-[#0B1F3A] tabular-nums">
               {candidate.batch_code || '—'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-[#5B6B7F]">Certification code</dt>
+            <dd className="mt-0.5 font-mono font-medium text-[#0B1F3A] tabular-nums">
+              {candidate.certification_code || '—'}
             </dd>
           </div>
         </dl>

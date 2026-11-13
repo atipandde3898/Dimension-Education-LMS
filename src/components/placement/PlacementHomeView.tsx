@@ -31,10 +31,13 @@ interface PlacementHomeViewProps {
 }
 
 const STAGE_BADGE_STYLES: Record<OpportunityPipelineStage, string> = {
+  profile_shared: 'bg-[#E8F0FA] text-[#2F6FB0] border-[#BFD7F2]',
   shortlisted: 'bg-[#E8F0FA] text-[#2F6FB0] border-[#BFD7F2]',
-  interview: 'bg-[#FDF4E0] text-[#C98A0B] border-[#F6DEAA]',
-  selected: 'bg-[#E6F6F6] text-[#0B7C7C] border-[#BCE6E6]',
-  offer_made: 'bg-[#E7F6EF] text-[#1F9D6B] border-[#BCE8D3]',
+  interview: 'bg-[#E6F6F6] text-[#0B7C7C] border-[#BCE6E6]',
+  on_hold: 'bg-[#FDF4E0] text-[#C98A0B] border-[#F6DEAA]',
+  no_show: 'bg-[#F5F8FB] text-[#5B6B7F] border-[#E3E9F0]',
+  selected: 'bg-[#E7F6EF] text-[#1F9D6B] border-[#BCE8D3]',
+  offer_made: 'bg-[#E7F6EF] text-[#1B7F56] border-[#A8DFC7]',
   joined: 'bg-[#E7F6EF] text-[#1F9D6B] border-[#BCE8D3]',
   rejected: 'bg-[#FBEAE9] text-[#C2413B] border-[#F4C5C2]',
 };
@@ -171,7 +174,7 @@ export function PlacementHomeView({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-5 gap-3">
           {PIPELINE_STAGE_OPTIONS.map((stage) => (
             <div
               key={stage.value}

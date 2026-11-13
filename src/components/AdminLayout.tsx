@@ -9,7 +9,7 @@ import {
   GraduationCap,
   IndianRupee,
   LayoutDashboard,
-  LogOut,
+  ListChecks,
   Menu,
   MessageSquare,
   Send,
@@ -23,6 +23,7 @@ import { BrandLogo } from './ui/BrandLogo';
 export type AdminSection =
   | 'dashboard'
   | 'catalog'
+  | 'education_lists'
   | 'placement'
   | 'placement_opportunities'
   | 'staff'
@@ -57,6 +58,7 @@ const NAV_ITEMS: Array<{
 }> = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'catalog', label: 'Programs & Modules', icon: BookOpen },
+  { id: 'education_lists', label: 'Education lists', icon: ListChecks },
   { id: 'placement', label: 'Placement Team', icon: Briefcase },
   { id: 'placement_opportunities', label: 'Placement', icon: Send },
   { id: 'staff', label: 'Staff', icon: Users },

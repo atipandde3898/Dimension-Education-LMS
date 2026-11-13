@@ -172,12 +172,18 @@ function buildCandidateProfilePdfBlob(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(11, 124, 124);
-  doc.text(`${code}  ·  ${stageLabel}`, infoX, y + 33);
+  const certSuffix = profile?.certification_code
+    ? `  ·  Cert: ${profile.certification_code}`
+    : '';
+  doc.text(`${code}  ·  ${stageLabel}${certSuffix}`, infoX, y + 33);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.setTextColor(91, 107, 127);
-  doc.text(`Module: ${moduleName}`, infoX, y + 49);
+  const certLine = profile?.certification_code
+    ? `Module: ${moduleName}   |   Cert Code: ${profile.certification_code}`
+    : `Module: ${moduleName}`;
+  doc.text(certLine, infoX, y + 49);
   doc.text(`Email: ${email}   |   Phone: ${phone}`, infoX, y + 64);
 
   y += photoBoxSize + 24;

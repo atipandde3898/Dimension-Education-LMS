@@ -287,6 +287,9 @@ export function PlacementCandidatesView({
                       onSort={handleSort}
                     />
                   </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#5B6B7F] whitespace-nowrap">
+                    Cert Code
+                  </th>
                   <th className="px-4 py-3 text-left">
                     <SortHeader
                       label="Work & Experience"
@@ -373,6 +376,9 @@ export function PlacementCandidatesView({
                           {formatCandidateStatusLabel(cand.stage)}
                         </span>
                       </td>
+                      <td className="px-4 py-3 font-mono text-xs text-[#0B1F3A] whitespace-nowrap">
+                        {cand.certification_code || '—'}
+                      </td>
                       <td className="px-4 py-3 text-xs text-[#0F1B2D] whitespace-nowrap">
                         {workText}
                       </td>
@@ -437,6 +443,7 @@ export function PlacementCandidatesView({
                           ? `${cand.total_exp_years ?? 0} yrs exp`
                           : 'Work N/A'}{' '}
                       · {cand.cv_path ? 'CV Ready' : 'No CV'}
+                      {cand.certification_code ? ` · Cert: ${cand.certification_code}` : ''}
                     </p>
                   </div>
                 </div>

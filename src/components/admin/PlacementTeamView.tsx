@@ -44,6 +44,11 @@ export function PlacementTeamView() {
     useState<PlacementMember | null>(null);
   const [deactivating, setDeactivating] = useState(false);
 
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] =
+    useState<PlacementMember | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const loadMembers = useCallback(async () => {
     const client = supabase;
     if (!client) return;
@@ -204,6 +209,34 @@ export function PlacementTeamView() {
 
     if (err) {
       setActionError(formatDbError(err));
+      return;
+    }
+    await loadMembers();
+  };
+
+  const handleConfirmDelete = async () => {
+    const client = supabase;
+    if (!client || !deleteTarget) return;
+
+    setDeleting(true);
+    setActionError(null);
+
+    const { error: err } = await client
+      .from('placement_members')
+      .delete()
+      .eq('id', deleteTarget.id);
+
+    setDeleting(false);
+    setDeleteTarget(null);
+
+    if (err) {
+      if ((err as { code?: string }).code === '23503') {
+        setActionError(
+          'This is in use, so it cannot be deleted. Deactivate it instead.',
+        );
+      } else {
+        setActionError(formatDbError(err));
+      }
       return;
     }
     await loadMembers();
@@ -394,6 +427,14 @@ export function PlacementTeamView() {
                             Activate
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget(member)}
+                          aria-label={`Delete placement member ${member.full_name}`}
+                          className="text-xs font-medium text-red-700 hover:text-red-900 whitespace-nowrap"
+                        >
+                          Delete
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -500,6 +541,17 @@ export function PlacementTeamView() {
         title="Deactivate Placement Member?"
         message={`Deactivating "${deactivateTarget?.full_name}" will mark them inactive in the placement team directory. Existing candidate handover records remain intact.`}
         confirmLabel="Deactivate"
+        tone="danger"
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => !deleting && setDeleteTarget(null)}
+        onConfirm={() => void handleConfirmDelete()}
+        loading={deleting}
+        title="Delete Placement Member?"
+        message={`Are you sure you want to permanently delete "${deleteTarget?.full_name}"? This action cannot be undone.`}
+        confirmLabel="Delete"
         tone="danger"
       />
     </div>

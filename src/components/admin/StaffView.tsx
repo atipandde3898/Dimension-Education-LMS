@@ -1,8 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Search } from 'lucide-react';
+import { RefreshCw, Search, Trash2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type { Profile, SortDirection } from '../../types/database';
-import { filterAndSortRows, formatDbError } from '../../utils/domain';
+import {
+  filterAndSortRows,
+  formatDbError,
+  parseFunctionsError,
+} from '../../utils/domain';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Modal } from '../ui/Modal';
 import {
@@ -55,6 +59,16 @@ export function StaffView({
   // Confirm destructive/role-sensitive updates
   const [pendingSensitiveSave, setPendingSensitiveSave] =
     useState<boolean>(false);
+
+  // Staff delete modal & feedback
+  const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
+  const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
+  const [deletingStaff, setDeletingStaff] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [actionBanner, setActionBanner] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   const loadProfiles = useCallback(async () => {
     if (!supabase) return;
@@ -179,6 +193,49 @@ export function StaffView({
     }));
   };
 
+  const handleExecuteDeleteStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supabase || !deleteTarget) return;
+
+    if (
+      deleteConfirmEmail.trim().toLowerCase() !==
+      deleteTarget.email.toLowerCase()
+    ) {
+      setDeleteError('Email address does not match this staff member.');
+      return;
+    }
+
+    setDeletingStaff(true);
+    setDeleteError(null);
+
+    const { data, error: fnErr } = await supabase.functions.invoke(
+      'admin-delete',
+      {
+        body: {
+          target: 'staff',
+          id: deleteTarget.id,
+          confirm: deleteConfirmEmail.trim(),
+        },
+      },
+    );
+
+    if (fnErr) {
+      const parsed = await parseFunctionsError(fnErr);
+      setDeletingStaff(false);
+      setDeleteError(parsed.message);
+      return;
+    }
+
+    setDeletingStaff(false);
+    const msg =
+      (data as { message?: string } | null)?.message ||
+      `Removed ${deleteTarget.full_name || deleteTarget.email}.`;
+    setDeleteTarget(null);
+    setDeleteConfirmEmail('');
+    setActionBanner({ type: 'success', message: msg });
+    await loadProfiles();
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -246,6 +303,26 @@ export function StaffView({
           />
         </div>
       </div>
+
+      {actionBanner && (
+        <div
+          role={actionBanner.type === 'error' ? 'alert' : 'status'}
+          className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+            actionBanner.type === 'error'
+              ? 'bg-red-50 border-red-200 text-red-800'
+              : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+          }`}
+        >
+          <span>{actionBanner.message}</span>
+          <button
+            type="button"
+            onClick={() => setActionBanner(null)}
+            className="text-xs font-medium underline opacity-80 hover:opacity-100"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <TableSkeleton rows={6} columns={6} />
@@ -347,14 +424,31 @@ export function StaffView({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(p)}
-                          aria-label={`Edit profile for ${p.full_name || p.email}`}
-                          className="text-xs font-medium text-blue-700 hover:text-blue-900 whitespace-nowrap"
-                        >
-                          Edit
-                        </button>
+                        <div className="inline-flex items-center justify-end gap-3">
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(p)}
+                            aria-label={`Edit profile for ${p.full_name || p.email}`}
+                            className="text-xs font-medium text-blue-700 hover:text-blue-900 whitespace-nowrap"
+                          >
+                            Edit
+                          </button>
+                          {!isSelf && p.role !== 'candidate' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeleteTarget(p);
+                                setDeleteConfirmEmail('');
+                                setDeleteError(null);
+                              }}
+                              aria-label={`Delete staff ${p.full_name || p.email}`}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 whitespace-nowrap"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Delete
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -493,6 +587,76 @@ export function StaffView({
         confirmLabel="Confirm Update"
         tone="warning"
       />
+
+      {/* Staff Delete Confirmation Modal */}
+      <Modal
+        open={Boolean(deleteTarget)}
+        onClose={() => !deletingStaff && setDeleteTarget(null)}
+        title="Delete Staff Member?"
+        description="This permanently removes the staff profile and login access."
+        maxWidthClass="max-w-md"
+      >
+        <form onSubmit={handleExecuteDeleteStaff} className="space-y-4">
+          <div className="p-3.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 leading-relaxed">
+            Deleting <strong>{deleteTarget?.full_name || deleteTarget?.email}</strong> ({deleteTarget ? ROLE_DISPLAY[deleteTarget.role] : ''}) cannot be undone. If this user has historical activity, switch them to inactive instead.
+          </div>
+
+          {deleteError && (
+            <div
+              role="alert"
+              className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800"
+            >
+              {deleteError}
+            </div>
+          )}
+
+          <div>
+            <label
+              htmlFor="confirm-delete-staff-email"
+              className="block text-xs font-medium text-slate-700 mb-1"
+            >
+              Type <span className="font-mono font-semibold">{deleteTarget?.email}</span> to confirm deletion
+            </label>
+            <input
+              id="confirm-delete-staff-email"
+              type="email"
+              required
+              autoComplete="off"
+              placeholder={deleteTarget?.email || ''}
+              value={deleteConfirmEmail}
+              disabled={deletingStaff}
+              onChange={(e) => {
+                setDeleteConfirmEmail(e.target.value);
+                if (deleteError) setDeleteError(null);
+              }}
+              className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-red-600"
+            />
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              disabled={deletingStaff}
+              onClick={() => setDeleteTarget(null)}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={
+                deletingStaff ||
+                !deleteTarget ||
+                deleteConfirmEmail.trim().toLowerCase() !==
+                  deleteTarget.email.toLowerCase()
+              }
+              className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50"
+            >
+              {deletingStaff ? 'Deleting…' : 'Delete Staff Member'}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

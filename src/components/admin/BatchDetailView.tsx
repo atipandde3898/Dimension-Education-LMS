@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Search, UserPlus } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type {
   Batch,
@@ -13,7 +13,9 @@ import type {
   TimetableSlot,
 } from '../../types/database';
 import {
+  buildBatchUpdatePayload,
   computeTotalSessionHours,
+  didBatchStartMonthChange,
   filterAndSortRows,
   formatCandidateStatusLabel,
   formatDate,
@@ -63,6 +65,7 @@ export function BatchDetailView({
   onBatchCodeLoaded,
 }: BatchDetailViewProps) {
   const [batch, setBatch] = useState<Batch | null>(null);
+  const [allModules, setAllModules] = useState<Module[]>([]);
   const [moduleInfo, setModuleInfo] = useState<Module | null>(null);
   const [batchSmes, setBatchSmes] = useState<BatchSme[]>([]);
   const [allProfiles, setAllProfiles] = useState<Profile[]>([]);
@@ -74,6 +77,9 @@ export function BatchDetailView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [batchIdChangeNotice, setBatchIdChangeNotice] = useState<string | null>(
+    null,
+  );
 
   // Assign SME
   const [selectedSmeId, setSelectedSmeId] = useState('');
@@ -83,14 +89,19 @@ export function BatchDetailView({
   const [smeToRemove, setSmeToRemove] = useState<Profile | null>(null);
   const [removingSme, setRemovingSme] = useState(false);
 
-  // Edit Batch schedule modal (never edits timetable_status directly)
+  // Edit Batch modal (never edits timetable_status, batch_code, serial, or fy_label)
   const [editBatchOpen, setEditBatchOpen] = useState(false);
+  const [editModuleId, setEditModuleId] = useState('');
   const [editMode, setEditMode] = useState<'online' | 'offline'>('online');
   const [editStartDate, setEditStartDate] = useState('');
   const [editEndDate, setEditEndDate] = useState('');
   const [editLocation, setEditLocation] = useState('');
   const [savingBatch, setSavingBatch] = useState(false);
   const [editBatchError, setEditBatchError] = useState<string | null>(null);
+
+  // Delete batch confirmation
+  const [deleteBatchOpen, setDeleteBatchOpen] = useState(false);
+  const [deletingBatch, setDeletingBatch] = useState(false);
 
   // Enrolled candidates search & sort
   const [candidateSearch, setCandidateSearch] = useState('');
@@ -99,8 +110,11 @@ export function BatchDetailView({
     dir: SortDirection;
   }>({ field: 'candidate_code', dir: 'asc' });
 
-  const loadBatchDetails = useCallback(async () => {
-    if (!supabase) return;
+  const loadBatchDetails = useCallback(async (): Promise<{
+    batch: Batch;
+    candidates: Candidate[];
+  } | null> => {
+    if (!supabase) return null;
     setLoading(true);
     setError(null);
 
@@ -115,7 +129,7 @@ export function BatchDetailView({
     if (batchErr || !batchData) {
       setError(formatDbError(batchErr ?? 'Batch not found.'));
       setLoading(false);
-      return;
+      return null;
     }
 
     const loadedBatch = batchData as Batch;
@@ -134,8 +148,7 @@ export function BatchDetailView({
       supabase
         .from('modules')
         .select('id, code, name, active')
-        .eq('id', loadedBatch.module_id)
-        .maybeSingle(),
+        .order('code', { ascending: true }),
       supabase
         .from('batch_smes')
         .select('batch_id, sme_id')
@@ -186,24 +199,44 @@ export function BatchDetailView({
         ),
       );
       setLoading(false);
-      return;
+      return null;
     }
 
-    setModuleInfo((modRes.data as Module | null) ?? null);
+    const loadedModules = (modRes.data as Module[]) ?? [];
+    const loadedCandidates = (candRes.data as Candidate[]) ?? [];
+    setAllModules(loadedModules);
+    setModuleInfo(
+      loadedModules.find((m) => m.id === loadedBatch.module_id) ?? null,
+    );
     setBatchSmes((bsRes.data as BatchSme[]) ?? []);
     setAllProfiles((profilesRes.data as Profile[]) ?? []);
     setPrograms((progRes.data as Program[]) ?? []);
-    setEnrolledCandidates((candRes.data as Candidate[]) ?? []);
+    setEnrolledCandidates(loadedCandidates);
     setTimetableSlots((slotsRes.data as TimetableSlot[]) ?? []);
     setSessions(
       sortSessionsNewestFirst((sessionsRes.data as ClassSession[]) ?? []),
     );
     setLoading(false);
+    return { batch: loadedBatch, candidates: loadedCandidates };
   }, [batchId, onBatchCodeLoaded]);
 
   useEffect(() => {
-    loadBatchDetails();
+    setBatchIdChangeNotice(null);
+    void loadBatchDetails();
   }, [loadBatchDetails]);
+
+  const editableModules = useMemo(
+    () =>
+      allModules.filter(
+        (m) => m.active || (batch !== null && m.id === batch.module_id),
+      ),
+    [allModules, batch],
+  );
+
+  const hasCandidates = enrolledCandidates.length > 0;
+  const startMonthWillChange = Boolean(
+    batch && didBatchStartMonthChange(batch.start_date, editStartDate),
+  );
 
   const assignedSmeIds = useMemo(
     () => new Set(batchSmes.map((bs) => bs.sme_id)),
@@ -371,43 +404,52 @@ export function BatchDetailView({
     await loadBatchDetails();
   };
 
-  const openEditScheduleModal = () => {
+  const openEditBatchModal = () => {
     if (!batch) return;
+    setEditModuleId(batch.module_id);
     setEditMode(batch.mode);
     setEditStartDate(batch.start_date);
     setEditEndDate(batch.end_date ?? '');
     setEditLocation(batch.location ?? '');
     setEditBatchError(null);
+    setBatchIdChangeNotice(null);
     setEditBatchOpen(true);
   };
 
-  const handleSaveBatchSchedule = async (e: React.FormEvent) => {
+  const handleSaveBatch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supabase || !batch) return;
 
-    if (!editStartDate) {
-      setEditBatchError('Start date is required.');
+    const built = buildBatchUpdatePayload(
+      batch,
+      {
+        module_id: editModuleId,
+        mode: editMode,
+        start_date: editStartDate,
+        end_date: editEndDate,
+        location: editLocation,
+      },
+      hasCandidates,
+    );
+
+    if (!built.ok) {
+      setEditBatchError(built.error);
       return;
     }
-    if (editEndDate && editEndDate < editStartDate) {
-      setEditBatchError('End date cannot be earlier than start date.');
+
+    if (!built.hasChanges) {
+      setEditBatchOpen(false);
       return;
     }
+
+    const oldBatchCode = batch.batch_code;
 
     setSavingBatch(true);
     setEditBatchError(null);
 
-    const payload: Record<string, string | null> = {
-      mode: editMode,
-      start_date: editStartDate,
-      end_date: editEndDate.trim() || null,
-      location:
-        editMode === 'offline' ? editLocation.trim() || null : null,
-    };
-
     const { error: err } = await supabase
       .from('batches')
-      .update(payload)
+      .update(built.payload)
       .eq('id', batch.id);
 
     setSavingBatch(false);
@@ -417,7 +459,44 @@ export function BatchDetailView({
     }
 
     setEditBatchOpen(false);
-    await loadBatchDetails();
+    const reloaded = await loadBatchDetails();
+    if (reloaded && reloaded.batch.batch_code !== oldBatchCode) {
+      setBatchIdChangeNotice(
+        `Batch ID changed from ${oldBatchCode} to ${reloaded.batch.batch_code}. ${reloaded.candidates.length} candidate IDs were updated.`,
+      );
+    }
+  };
+
+  const handleConfirmDeleteBatch = async () => {
+    if (!supabase || !batch) return;
+
+    if (enrolledCandidates.length > 0) {
+      setDeleteBatchOpen(false);
+      setActionError('This batch has candidates, so it cannot be deleted.');
+      return;
+    }
+
+    setDeletingBatch(true);
+    setActionError(null);
+
+    const { error: delErr } = await supabase
+      .from('batches')
+      .delete()
+      .eq('id', batch.id);
+
+    setDeletingBatch(false);
+    setDeleteBatchOpen(false);
+
+    if (delErr) {
+      if ((delErr as { code?: string }).code === '23503') {
+        setActionError('This batch has candidates, so it cannot be deleted.');
+      } else {
+        setActionError(formatDbError(delErr));
+      }
+      return;
+    }
+
+    onBack();
   };
 
   const handleCandidateSort = (field: CandidateSortField) => {
@@ -491,13 +570,26 @@ export function BatchDetailView({
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={openEditScheduleModal}
-              className="px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors self-start whitespace-nowrap shrink-0"
-            >
-              Edit Schedule
-            </button>
+            <div className="flex flex-wrap items-center gap-2 self-start shrink-0">
+              <button
+                type="button"
+                onClick={openEditBatchModal}
+                className="px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap"
+              >
+                Edit Batch
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActionError(null);
+                  setDeleteBatchOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors whitespace-nowrap"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete batch
+              </button>
+            </div>
           </div>
 
           <dl className="grid grid-cols-2 sm:grid-cols-4 gap-6 text-sm">
@@ -528,6 +620,26 @@ export function BatchDetailView({
           </dl>
         </div>
       </div>
+
+      {batchIdChangeNotice && (
+        <div
+          role="status"
+          className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start justify-between gap-3 text-sm text-emerald-900"
+        >
+          <div className="flex items-start gap-2.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 mt-0.5 shrink-0" />
+            <p className="font-medium">{batchIdChangeNotice}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setBatchIdChangeNotice(null)}
+            aria-label="Dismiss batch ID change notice"
+            className="text-emerald-700 hover:text-emerald-900 p-0.5 rounded"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {actionError && (
         <ErrorState
@@ -925,14 +1037,14 @@ export function BatchDetailView({
         )}
       </section>
 
-      {/* Edit Batch Schedule Modal */}
+      {/* Edit Batch Modal */}
       <Modal
         open={editBatchOpen}
         onClose={() => !savingBatch && setEditBatchOpen(false)}
-        title={`Edit Schedule · ${batch.batch_code}`}
-        description="Batch code and module remain fixed, and timetable status is managed via SME publishing actions."
+        title={`Edit Batch · ${batch.batch_code}`}
+        description="Update module or batch schedule. Batch IDs update automatically if the start month changes."
       >
-        <form onSubmit={handleSaveBatchSchedule} className="space-y-4">
+        <form onSubmit={handleSaveBatch} className="space-y-4">
           {editBatchError && (
             <div
               role="alert"
@@ -944,6 +1056,34 @@ export function BatchDetailView({
 
           <div>
             <label
+              htmlFor="edit-batch-module"
+              className="block text-sm font-medium text-slate-700 mb-1"
+            >
+              Module
+            </label>
+            <select
+              id="edit-batch-module"
+              value={editModuleId}
+              disabled={hasCandidates || savingBatch}
+              onChange={(e) => setEditModuleId(e.target.value)}
+              className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-blue-600 disabled:bg-slate-100 disabled:text-slate-500"
+            >
+              {editableModules.map((mod) => (
+                <option key={mod.id} value={mod.id}>
+                  {mod.code} — {mod.name}
+                  {!mod.active ? ' (Inactive)' : ''}
+                </option>
+              ))}
+            </select>
+            {hasCandidates && (
+              <p className="mt-1 text-xs text-slate-500">
+                Module is locked because this batch has candidates.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label
               htmlFor="edit-batch-mode"
               className="block text-sm font-medium text-slate-700 mb-1"
             >
@@ -952,6 +1092,7 @@ export function BatchDetailView({
             <select
               id="edit-batch-mode"
               value={editMode}
+              disabled={savingBatch}
               onChange={(e) => {
                 const next = e.target.value as 'online' | 'offline';
                 setEditMode(next);
@@ -977,6 +1118,7 @@ export function BatchDetailView({
                 type="date"
                 required
                 value={editStartDate}
+                disabled={savingBatch}
                 onChange={(e) => setEditStartDate(e.target.value)}
                 className="w-full px-3.5 py-2 text-sm font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-blue-600"
               />
@@ -994,6 +1136,7 @@ export function BatchDetailView({
                 type="date"
                 value={editEndDate}
                 min={editStartDate || undefined}
+                disabled={savingBatch}
                 onChange={(e) => setEditEndDate(e.target.value)}
                 className="w-full px-3.5 py-2 text-sm font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-blue-600"
               />
@@ -1012,10 +1155,23 @@ export function BatchDetailView({
                 id="edit-batch-location"
                 type="text"
                 value={editLocation}
+                disabled={savingBatch}
                 onChange={(e) => setEditLocation(e.target.value)}
                 placeholder="e.g. Main Campus, Classroom 2B"
                 className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-blue-600"
               />
+            </div>
+          )}
+
+          {startMonthWillChange && (
+            <div
+              role="note"
+              className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2 text-xs text-amber-900"
+            >
+              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <span>
+                Changing the start month changes this batch's ID and the IDs of all its candidates.
+              </span>
             </div>
           )}
 
@@ -1033,7 +1189,7 @@ export function BatchDetailView({
               disabled={savingBatch}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50"
             >
-              {savingBatch ? 'Saving…' : 'Save Schedule'}
+              {savingBatch ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
         </form>
@@ -1050,6 +1206,18 @@ export function BatchDetailView({
           smeToRemove?.full_name || smeToRemove?.email
         }" from batch ${batch.batch_code}?`}
         confirmLabel="Remove SME"
+        tone="danger"
+      />
+
+      {/* Confirm Delete Batch */}
+      <ConfirmDialog
+        open={deleteBatchOpen}
+        onClose={() => !deletingBatch && setDeleteBatchOpen(false)}
+        onConfirm={() => void handleConfirmDeleteBatch()}
+        loading={deletingBatch}
+        title={`Delete Batch ${batch.batch_code}?`}
+        message="This also deletes its timetable and session log."
+        confirmLabel="Delete batch"
         tone="danger"
       />
     </div>

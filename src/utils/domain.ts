@@ -15,6 +15,7 @@ import type {
   ClassSession,
   DashboardStats,
   DocTypeValue,
+  EducationOptionCategory,
   WorkTypeValue,
   FeePlan,
   InstallmentStateValue,
@@ -391,6 +392,99 @@ export function buildBatchCreatePayload(
       end_date: endDate,
       location: input.mode === 'offline' ? rawLocation : null,
     },
+  };
+}
+
+export interface BatchUpdateInput {
+  module_id: string;
+  mode: 'online' | 'offline';
+  start_date: string;
+  end_date?: string | null;
+  location?: string | null;
+}
+
+export type BatchUpdatePayload = Partial<BatchInsertPayload>;
+
+/**
+ * Returns true if the year-month (YYYY-MM) of the draft start date differs from the saved one.
+ */
+export function didBatchStartMonthChange(
+  savedStartDate: string | null | undefined,
+  draftStartDate: string | null | undefined,
+): boolean {
+  const savedYm = (savedStartDate ?? '').trim().slice(0, 7);
+  const draftYm = (draftStartDate ?? '').trim().slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(savedYm) || !/^\d{4}-\d{2}$/.test(draftYm)) {
+    return false;
+  }
+  return savedYm !== draftYm;
+}
+
+/**
+ * Builds a minimal PATCH payload for `batches`:
+ * - Never sends `batch_code`, `serial`, or `fy_label`
+ * - Sends only fields that actually changed compared to `original`
+ * - Locks `module_id` when `hasCandidates` is true
+ */
+export function buildBatchUpdatePayload(
+  original: Pick<
+    Batch,
+    'module_id' | 'mode' | 'start_date' | 'end_date' | 'location'
+  >,
+  draft: BatchUpdateInput,
+  hasCandidates: boolean,
+):
+  | { ok: true; payload: BatchUpdatePayload; hasChanges: boolean }
+  | { ok: false; error: string } {
+  const moduleId = draft.module_id.trim();
+  const startDate = draft.start_date.trim();
+  const normalizedEndDate = (draft.end_date ?? '').trim() || null;
+  const normalizedLocation =
+    draft.mode === 'offline' ? (draft.location ?? '').trim() || null : null;
+
+  if (!moduleId) {
+    return { ok: false, error: 'Please select a module for this batch.' };
+  }
+  if (hasCandidates && moduleId !== original.module_id) {
+    return {
+      ok: false,
+      error: 'Module cannot be changed because this batch has candidates.',
+    };
+  }
+  if (draft.mode !== 'online' && draft.mode !== 'offline') {
+    return { ok: false, error: 'Batch mode must be online or offline.' };
+  }
+  if (!startDate) {
+    return { ok: false, error: 'Start date is required.' };
+  }
+  if (normalizedEndDate && normalizedEndDate < startDate) {
+    return {
+      ok: false,
+      error: 'End date cannot be earlier than start date.',
+    };
+  }
+
+  const payload: BatchUpdatePayload = {};
+  if (!hasCandidates && moduleId !== original.module_id) {
+    payload.module_id = moduleId;
+  }
+  if (draft.mode !== original.mode) {
+    payload.mode = draft.mode;
+  }
+  if (startDate !== original.start_date) {
+    payload.start_date = startDate;
+  }
+  if (normalizedEndDate !== (original.end_date ?? null)) {
+    payload.end_date = normalizedEndDate;
+  }
+  if (normalizedLocation !== (original.location ?? null)) {
+    payload.location = normalizedLocation;
+  }
+
+  return {
+    ok: true,
+    payload,
+    hasChanges: Object.keys(payload).length > 0,
   };
 }
 
@@ -3165,8 +3259,11 @@ export const PIPELINE_STAGE_OPTIONS: ReadonlyArray<{
   value: OpportunityPipelineStage;
   label: string;
 }> = [
+  { value: 'profile_shared', label: 'Profile shared' },
   { value: 'shortlisted', label: 'Shortlisted' },
   { value: 'interview', label: 'Interview' },
+  { value: 'on_hold', label: 'On hold' },
+  { value: 'no_show', label: 'No show' },
   { value: 'selected', label: 'Selected' },
   { value: 'offer_made', label: 'Offer made' },
   { value: 'joined', label: 'Joined' },
@@ -3335,8 +3432,11 @@ export function computePlacementDashboardSummary(
 
   let waitingForDecision = 0;
   const pipelineCounts: Record<OpportunityPipelineStage, number> = {
+    profile_shared: 0,
     shortlisted: 0,
     interview: 0,
+    on_hold: 0,
+    no_show: 0,
     selected: 0,
     offer_made: 0,
     joined: 0,
@@ -3729,6 +3829,7 @@ export function isCandidateOpportunityApplyBlocked(
 
 export const APPLICATION_PROGRESS_STEPS = [
   'Applied',
+  'Profile shared',
   'Shortlisted',
   'Interview',
   'Selected',
@@ -3741,7 +3842,8 @@ export type CandidateApplicationStatusTone =
   | 'green'
   | 'teal'
   | 'dark_green'
-  | 'grey';
+  | 'grey'
+  | 'amber';
 
 export interface CandidateApplicationStatusInfo {
   label: string;
@@ -3754,39 +3856,60 @@ export function formatCandidateApplicationStatus(
   stage: OpportunityPipelineStage | string | null | undefined,
 ): CandidateApplicationStatusInfo {
   switch (stage) {
+    case 'profile_shared':
+      return {
+        label: 'Your profile has been shared with the company',
+        tone: 'blue',
+        stepIndex: 1,
+        isRejected: false,
+      };
     case 'shortlisted':
       return {
         label: 'Shortlisted',
         tone: 'green',
-        stepIndex: 1,
+        stepIndex: 2,
         isRejected: false,
       };
     case 'interview':
       return {
         label: 'Interview stage',
         tone: 'teal',
-        stepIndex: 2,
+        stepIndex: 3,
         isRejected: false,
+      };
+    case 'on_hold':
+      return {
+        label: 'On hold',
+        tone: 'amber',
+        stepIndex: 3,
+        isRejected: false,
+      };
+    case 'no_show':
+      return {
+        label: 'Not selected',
+        tone: 'grey',
+        stepIndex: -1,
+        isRejected: true,
       };
     case 'selected':
       return {
         label: 'Selected',
         tone: 'green',
-        stepIndex: 3,
+        stepIndex: 4,
         isRejected: false,
       };
     case 'offer_made':
       return {
         label: 'Offer made',
         tone: 'dark_green',
-        stepIndex: 4,
+        stepIndex: 5,
         isRejected: false,
       };
     case 'joined':
       return {
         label: 'Joined',
         tone: 'green',
-        stepIndex: 5,
+        stepIndex: 6,
         isRejected: false,
       };
     case 'rejected':
@@ -3804,6 +3927,126 @@ export function formatCandidateApplicationStatus(
         isRejected: false,
       };
   }
+}
+
+export function shouldAllowPipelineStageEmail(
+  stage: OpportunityPipelineStage | string | null | undefined,
+): boolean {
+  return stage === 'shortlisted' || stage === 'no_show' || stage === 'rejected';
+}
+
+export function isClosedRejectionStage(
+  stage: OpportunityPipelineStage | string | null | undefined,
+): boolean {
+  return stage === 'rejected' || stage === 'no_show';
+}
+
+export const EDUCATION_OPTION_CATEGORIES: ReadonlyArray<EducationOptionCategory> = [
+  'diploma_stream',
+  'graduation_stream',
+  'graduation_degree',
+  'graduation_university',
+  'pg_stream',
+  'pg_degree',
+  'pg_university',
+] as const;
+
+export const EDUCATION_OPTION_CATEGORY_CONFIG: Record<
+  EducationOptionCategory,
+  { label: string; singular: string; description: string }
+> = {
+  diploma_stream: {
+    label: 'Diploma Streams',
+    singular: 'Diploma Stream',
+    description: 'Engineering diploma branches shown in the candidate Diploma section.',
+  },
+  graduation_stream: {
+    label: 'Graduation Streams',
+    singular: 'Graduation Stream',
+    description: 'Academic streams available for undergraduate degrees.',
+  },
+  graduation_degree: {
+    label: 'Graduation Degrees',
+    singular: 'Graduation Degree',
+    description: 'Undergraduate degree names such as B.E., B.Tech, B.Com, or B.Sc.',
+  },
+  graduation_university: {
+    label: 'Graduation Universities',
+    singular: 'Graduation University',
+    description: 'Universities and autonomous institutes for graduation.',
+  },
+  pg_stream: {
+    label: 'PG Streams',
+    singular: 'PG Stream',
+    description: 'Post-graduation specializations and academic streams.',
+  },
+  pg_degree: {
+    label: 'PG Degrees',
+    singular: 'PG Degree',
+    description: 'Post-graduation degree names such as M.Tech, MBA, or MCA.',
+  },
+  pg_university: {
+    label: 'PG Universities',
+    singular: 'PG University',
+    description: 'Universities and institutes for post-graduation.',
+  },
+};
+
+export function generateEducationYears(
+  maxYear = new Date().getFullYear() + 1,
+  minYear = 1990,
+): number[] {
+  const years: number[] = [];
+  for (let y = maxYear; y >= minYear; y--) {
+    years.push(y);
+  }
+  return years;
+}
+
+export async function parseFunctionsError(
+  error: unknown,
+): Promise<{ error?: string; message: string }> {
+  if (!error) return { message: 'An unknown error occurred.' };
+  const errObj = error as {
+    message?: string;
+    error?: string;
+    context?: { json?: () => Promise<any>; text?: () => Promise<string> };
+    response?: { json?: () => Promise<any> };
+  };
+
+  if (errObj.context && typeof errObj.context.json === 'function') {
+    try {
+      const data = await errObj.context.json();
+      return {
+        error: data.error,
+        message:
+          data.message || data.error || errObj.message || 'Operation failed.',
+      };
+    } catch {
+      try {
+        if (typeof errObj.context.text === 'function') {
+          const text = await errObj.context.text();
+          return { message: text || errObj.message || 'Operation failed.' };
+        }
+      } catch {}
+    }
+  }
+
+  if (errObj.response && typeof errObj.response.json === 'function') {
+    try {
+      const data = await errObj.response.json();
+      return {
+        error: data.error,
+        message:
+          data.message || data.error || errObj.message || 'Operation failed.',
+      };
+    } catch {}
+  }
+
+  return {
+    error: errObj.error,
+    message: errObj.message || 'Operation failed.',
+  };
 }
 
 export function sortCandidateApplicationsNewestFirst<

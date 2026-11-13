@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildAdminPaymentDecisionPayload,
   buildBatchCreatePayload,
+  buildBatchUpdatePayload,
   buildBatchesReportRows,
   buildCandidateCreatePayload,
   buildCandidateDocUpsertPayload,
@@ -85,8 +86,15 @@ import {
   isCandidateOpportunityLive,
   sortCandidateOpportunitiesSoonestFirst,
   APPLICATION_PROGRESS_STEPS,
+  EDUCATION_OPTION_CATEGORIES,
+  EDUCATION_OPTION_CATEGORY_CONFIG,
+  PIPELINE_STAGE_OPTIONS,
+  didBatchStartMonthChange,
   formatCandidateApplicationStatus,
+  generateEducationYears,
   getMostRecentUpdatedApplication,
+  isClosedRejectionStage,
+  shouldAllowPipelineStageEmail,
   sortCandidateApplicationsNewestFirst,
 } from './domain';
 import {
@@ -1957,6 +1965,7 @@ test('interested candidates Excel rows and PDF/ZIP filenames handle NA sections,
     cv_path: 'c1/cv/1-cv.pdf',
     cv_file_name: 'Aarav_CV.pdf',
     photo_path: 'c1/profile_photo/profile_photo.jpg',
+    certification_code: 'SAP-CERT-2026-099',
   };
 
   const resp: OpportunityResponse = {
@@ -1987,6 +1996,7 @@ test('interested candidates Excel rows and PDF/ZIP filenames handle NA sections,
   );
   assert.equal(rows.length, 1);
   assert.equal(rows[0]['Candidate Code'], 'DE-101');
+  assert.equal(rows[0]['Certification Code'], 'SAP-CERT-2026-099');
   assert.equal(rows[0]['Diploma Stream'], 'NA');
   assert.equal(rows[0]['PG University'], 'NA');
   assert.equal(rows[0]['Current CTC (lakhs)'], 9.5);
@@ -2114,6 +2124,7 @@ test('candidate opportunities formatting, countdown urgency, sorting, and onboar
 test('my_applications status labels, tones, progress steps, sorting, and latest home update work accurately', () => {
   assert.deepEqual([...APPLICATION_PROGRESS_STEPS], [
     'Applied',
+    'Profile shared',
     'Shortlisted',
     'Interview',
     'Selected',
@@ -2127,34 +2138,52 @@ test('my_applications status labels, tones, progress steps, sorting, and latest 
     stepIndex: 0,
     isRejected: false,
   });
+  assert.deepEqual(formatCandidateApplicationStatus('profile_shared'), {
+    label: 'Your profile has been shared with the company',
+    tone: 'blue',
+    stepIndex: 1,
+    isRejected: false,
+  });
   assert.deepEqual(formatCandidateApplicationStatus('shortlisted'), {
     label: 'Shortlisted',
     tone: 'green',
-    stepIndex: 1,
+    stepIndex: 2,
     isRejected: false,
   });
   assert.deepEqual(formatCandidateApplicationStatus('interview'), {
     label: 'Interview stage',
     tone: 'teal',
-    stepIndex: 2,
+    stepIndex: 3,
     isRejected: false,
+  });
+  assert.deepEqual(formatCandidateApplicationStatus('on_hold'), {
+    label: 'On hold',
+    tone: 'amber',
+    stepIndex: 3,
+    isRejected: false,
+  });
+  assert.deepEqual(formatCandidateApplicationStatus('no_show'), {
+    label: 'Not selected',
+    tone: 'grey',
+    stepIndex: -1,
+    isRejected: true,
   });
   assert.deepEqual(formatCandidateApplicationStatus('selected'), {
     label: 'Selected',
     tone: 'green',
-    stepIndex: 3,
+    stepIndex: 4,
     isRejected: false,
   });
   assert.deepEqual(formatCandidateApplicationStatus('offer_made'), {
     label: 'Offer made',
     tone: 'dark_green',
-    stepIndex: 4,
+    stepIndex: 5,
     isRejected: false,
   });
   assert.deepEqual(formatCandidateApplicationStatus('joined'), {
     label: 'Joined',
     tone: 'green',
-    stepIndex: 5,
+    stepIndex: 6,
     isRejected: false,
   });
   assert.deepEqual(formatCandidateApplicationStatus('rejected'), {
@@ -2222,6 +2251,181 @@ test('my_applications status labels, tones, progress steps, sorting, and latest 
   assert.equal(latest?.application.recipient_id, 'rec-shortlisted');
   assert.equal(latest?.summaryText, 'Acme Corp: Shortlisted');
 });
+
+test('all 9 pipeline stages, education option categories, and descending education year lists match spec', () => {
+  assert.deepEqual(
+    PIPELINE_STAGE_OPTIONS.map((o) => [o.value, o.label]),
+    [
+      ['profile_shared', 'Profile shared'],
+      ['shortlisted', 'Shortlisted'],
+      ['interview', 'Interview'],
+      ['on_hold', 'On hold'],
+      ['no_show', 'No show'],
+      ['selected', 'Selected'],
+      ['offer_made', 'Offer made'],
+      ['joined', 'Joined'],
+      ['rejected', 'Rejected'],
+    ],
+  );
+
+  assert.deepEqual([...EDUCATION_OPTION_CATEGORIES], [
+    'diploma_stream',
+    'graduation_stream',
+    'graduation_degree',
+    'graduation_university',
+    'pg_stream',
+    'pg_degree',
+    'pg_university',
+  ]);
+  for (const cat of EDUCATION_OPTION_CATEGORIES) {
+    assert.ok(EDUCATION_OPTION_CATEGORY_CONFIG[cat].label);
+    assert.ok(EDUCATION_OPTION_CATEGORY_CONFIG[cat].singular);
+  }
+
+  const years = generateEducationYears(2027, 1990);
+  assert.equal(years[0], 2027);
+  assert.equal(years[years.length - 1], 1990);
+  assert.equal(years.length, 2027 - 1990 + 1);
+});
+
+test('no_show counts as a rejection for email option and closed outcome grouping while staying distinct on placement/admin options', () => {
+  // Email checkbox allowed ONLY for shortlisted, no_show, rejected
+  assert.equal(shouldAllowPipelineStageEmail('shortlisted'), true);
+  assert.equal(shouldAllowPipelineStageEmail('no_show'), true);
+  assert.equal(shouldAllowPipelineStageEmail('rejected'), true);
+
+  for (const stage of [
+    'profile_shared',
+    'interview',
+    'on_hold',
+    'selected',
+    'offer_made',
+    'joined',
+    '',
+    null,
+    undefined,
+  ]) {
+    assert.equal(shouldAllowPipelineStageEmail(stage), false);
+  }
+
+  // Closed rejection grouping includes both rejected and no_show
+  assert.equal(isClosedRejectionStage('rejected'), true);
+  assert.equal(isClosedRejectionStage('no_show'), true);
+  assert.equal(isClosedRejectionStage('shortlisted'), false);
+  assert.equal(isClosedRejectionStage('joined'), false);
+  assert.equal(isClosedRejectionStage(null), false);
+
+  // Placement & admin pipeline dropdown still keeps No show as its own stage
+  const noShowOption = PIPELINE_STAGE_OPTIONS.find((o) => o.value === 'no_show');
+  assert.equal(noShowOption?.label, 'No show');
+});
+
+test('batch edit diffing sends only changed fields, omits forbidden fields, locks module with candidates, and detects start month changes', () => {
+  // Start month / year change detection
+  assert.equal(didBatchStartMonthChange('2026-11-05', '2026-11-28'), false);
+  assert.equal(didBatchStartMonthChange('2026-11-05', '2026-12-01'), true);
+  assert.equal(didBatchStartMonthChange('2026-11-05', '2027-11-05'), true);
+
+  const original = {
+    module_id: 'mod-1',
+    mode: 'offline' as const,
+    start_date: '2026-11-10',
+    end_date: '2026-12-20',
+    location: 'Room 101',
+  };
+
+  // No changes -> empty payload, hasChanges: false
+  const noChanges = buildBatchUpdatePayload(
+    original,
+    {
+      module_id: 'mod-1',
+      mode: 'offline',
+      start_date: '2026-11-10',
+      end_date: '2026-12-20',
+      location: 'Room 101',
+    },
+    false,
+  );
+  assert.equal(noChanges.ok, true);
+  if (noChanges.ok) {
+    assert.equal(noChanges.hasChanges, false);
+    assert.deepEqual(noChanges.payload, {});
+  }
+
+  // Only changed start_date -> payload contains only start_date, never batch_code/serial/fy_label
+  const startChangedOnly = buildBatchUpdatePayload(
+    original,
+    {
+      module_id: 'mod-1',
+      mode: 'offline',
+      start_date: '2026-12-01',
+      end_date: '2026-12-20',
+      location: 'Room 101',
+    },
+    true,
+  );
+  assert.equal(startChangedOnly.ok, true);
+  if (startChangedOnly.ok) {
+    assert.equal(startChangedOnly.hasChanges, true);
+    assert.deepEqual(startChangedOnly.payload, { start_date: '2026-12-01' });
+    assert.equal('batch_code' in startChangedOnly.payload, false);
+    assert.equal('serial' in startChangedOnly.payload, false);
+    assert.equal('fy_label' in startChangedOnly.payload, false);
+    assert.equal('module_id' in startChangedOnly.payload, false);
+  }
+
+  // Switching to online clears location alongside mode
+  const switchedOnline = buildBatchUpdatePayload(
+    original,
+    {
+      module_id: 'mod-1',
+      mode: 'online',
+      start_date: '2026-11-10',
+      end_date: '2026-12-20',
+      location: 'Room 101',
+    },
+    true,
+  );
+  assert.equal(switchedOnline.ok, true);
+  if (switchedOnline.ok) {
+    assert.deepEqual(switchedOnline.payload, {
+      mode: 'online',
+      location: null,
+    });
+  }
+
+  // Attempting to change module when batch has candidates is rejected
+  const blockedModuleChange = buildBatchUpdatePayload(
+    original,
+    {
+      module_id: 'mod-2',
+      mode: 'offline',
+      start_date: '2026-11-10',
+      end_date: '2026-12-20',
+      location: 'Room 101',
+    },
+    true,
+  );
+  assert.equal(blockedModuleChange.ok, false);
+
+  // Module change allowed when batch has no candidates
+  const allowedModuleChange = buildBatchUpdatePayload(
+    original,
+    {
+      module_id: 'mod-2',
+      mode: 'offline',
+      start_date: '2026-11-10',
+      end_date: '2026-12-20',
+      location: 'Room 101',
+    },
+    false,
+  );
+  assert.equal(allowedModuleChange.ok, true);
+  if (allowedModuleChange.ok) {
+    assert.deepEqual(allowedModuleChange.payload, { module_id: 'mod-2' });
+  }
+});
+
 
 
 

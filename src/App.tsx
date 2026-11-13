@@ -17,6 +17,7 @@ import { CandidatesView } from './components/admin/CandidatesView';
 import { CatalogView } from './components/admin/CatalogView';
 import { DashboardView } from './components/admin/DashboardView';
 import { DocumentReviewView } from './components/admin/DocumentReviewView';
+import { EducationListsView } from './components/admin/EducationListsView';
 import { PaymentsView } from './components/admin/PaymentsView';
 import { PlacementTeamView } from './components/admin/PlacementTeamView';
 import { ReportsView } from './components/admin/ReportsView';
@@ -77,6 +78,9 @@ export default function App() {
     string | null
   >(null);
   const [openTicketsCount, setOpenTicketsCount] = useState<number>(0);
+  const [candidateDeletedMsg, setCandidateDeletedMsg] = useState<string | null>(
+    null,
+  );
 
   const loadOpenTicketsCount = useCallback(async () => {
     if (!supabase) return;
@@ -200,6 +204,7 @@ export default function App() {
 
   const handleOpenCandidate = useCallback((candidateId: string) => {
     setActiveSection('candidates');
+    setCandidateDeletedMsg(null);
     setSelectedBatchId(null);
     setSelectedBatchCode(null);
     setSelectedTicketId(null);
@@ -228,6 +233,9 @@ export default function App() {
     }
     if (activeSection === 'catalog') {
       return [{ label: 'Programs & Modules' }];
+    }
+    if (activeSection === 'education_lists') {
+      return [{ label: 'Education lists' }];
     }
     if (activeSection === 'placement') {
       return [{ label: 'Placement Team' }];
@@ -474,6 +482,8 @@ export default function App() {
         />
       )}
 
+      {activeSection === 'education_lists' && <EducationListsView />}
+
       {activeSection === 'placement' && <PlacementTeamView />}
 
       {activeSection === 'placement_opportunities' && (
@@ -518,11 +528,20 @@ export default function App() {
               setSelectedCandidateId(null);
               setSelectedCandidateCode(null);
             }}
+            onDeleted={(msg) => {
+              setCandidateDeletedMsg(msg);
+              setSelectedCandidateId(null);
+              setSelectedCandidateCode(null);
+            }}
             onSelectBatch={handleOpenBatch}
             onCandidateCodeLoaded={setSelectedCandidateCode}
           />
         ) : (
-          <CandidatesView onSelectCandidate={handleOpenCandidate} />
+          <CandidatesView
+            onSelectCandidate={handleOpenCandidate}
+            deletedMessage={candidateDeletedMsg}
+            onDismissDeletedMessage={() => setCandidateDeletedMsg(null)}
+          />
         ))}
 
       {activeSection === 'payments' && (

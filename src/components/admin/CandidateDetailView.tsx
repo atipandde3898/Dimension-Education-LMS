@@ -1,5 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Briefcase, Check, Eye, FileText, GraduationCap, Send, ShieldCheck, User, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Award,
+  Briefcase,
+  Check,
+  Eye,
+  FileText,
+  GraduationCap,
+  Send,
+  ShieldCheck,
+  Trash2,
+  User,
+  X,
+} from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type {
   Candidate,
@@ -30,6 +44,7 @@ import {
   formatResponseStateLabel,
   formatTicketDateTime,
   maskPan,
+  parseFunctionsError,
 } from '../../utils/domain';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import {
@@ -47,6 +62,7 @@ interface CandidateDetailViewProps {
   candidateId: string;
   adminUserId: string;
   onBack: () => void;
+  onDeleted?: (message: string) => void;
   onSelectBatch: (batchId: string) => void;
   onCandidateCodeLoaded?: (code: string) => void;
 }
@@ -64,6 +80,7 @@ export function CandidateDetailView({
   candidateId,
   adminUserId,
   onBack,
+  onDeleted,
   onSelectBatch,
   onCandidateCodeLoaded,
 }: CandidateDetailViewProps) {
@@ -99,6 +116,24 @@ export function CandidateDetailView({
     message: string;
   } | null>(null);
   const [confirmDropOpen, setConfirmDropOpen] = useState(false);
+
+  // Certification code state
+  const [certCode, setCertCode] = useState('');
+  const [savingCertCode, setSavingCertCode] = useState(false);
+  const [certFeedback, setCertFeedback] = useState<{
+    type: 'error' | 'success';
+    message: string;
+  } | null>(null);
+
+  // Danger zone / delete candidate state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteEmailInput, setDeleteEmailInput] = useState('');
+  const [hasPaymentsWarning, setHasPaymentsWarning] = useState<string | null>(
+    null,
+  );
+  const [deletePaymentsConfirmed, setDeletePaymentsConfirmed] = useState(false);
+  const [deletingCandidate, setDeletingCandidate] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Change counsellor state
   const [changeCounsellorModalOpen, setChangeCounsellorModalOpen] =
@@ -148,14 +183,14 @@ export function CandidateDetailView({
         client
           .from('v_candidate_overview')
           .select(
-            'candidate_id, candidate_code, full_name, email, phone, status, program, module, batch_code, batch_mode, counsellor, net_fee, paid, pending, handed_over, handover_date, placement_member',
+            'candidate_id, candidate_code, full_name, email, phone, status, program, module, batch_code, batch_mode, counsellor, certification_code, net_fee, paid, pending, handed_over, handover_date, placement_member',
           )
           .eq('candidate_id', candidateId)
           .single(),
         client
           .from('candidates')
           .select(
-            'id, profile_id, candidate_code, full_name, email, phone, program_id, module_id, batch_id, counsellor_id, status',
+            'id, profile_id, candidate_code, full_name, email, phone, program_id, module_id, batch_id, counsellor_id, status, certification_code',
           )
           .eq('id', candidateId)
           .maybeSingle(),
@@ -219,9 +254,13 @@ export function CandidateDetailView({
       }
 
       const loadedOverview = ovRes.data as CandidateOverview;
+      const loadedCand = (candRes.data as Candidate | null) ?? null;
       const loadedDocs = (docsRes.data as CandidateDocument[] | null) ?? [];
       setOverview(loadedOverview);
-      setCandidateRecord((candRes.data as Candidate | null) ?? null);
+      setCandidateRecord(loadedCand);
+      setCertCode(
+        loadedCand?.certification_code ?? loadedOverview.certification_code ?? '',
+      );
       setDocuments(loadedDocs);
       setEducation(
         eduRes.error
@@ -305,6 +344,103 @@ export function CandidateDetailView({
       return;
     }
     void executeStatusUpdate(nextStatus);
+  };
+
+  const handleSaveCertCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const client = supabase;
+    if (!client) return;
+
+    const trimmed = certCode.trim();
+    if (trimmed && (trimmed.length < 2 || trimmed.length > 100)) {
+      setCertFeedback({
+        type: 'error',
+        message: 'Certification code must be between 2 and 100 characters.',
+      });
+      return;
+    }
+
+    setSavingCertCode(true);
+    setCertFeedback(null);
+
+    const { error: updErr } = await client
+      .from('candidates')
+      .update({ certification_code: trimmed || null })
+      .eq('id', candidateId);
+
+    setSavingCertCode(false);
+
+    if (updErr) {
+      setCertFeedback({
+        type: 'error',
+        message: formatDbError(updErr),
+      });
+      return;
+    }
+
+    setCertFeedback({
+      type: 'success',
+      message: trimmed
+        ? `Certification code saved (${trimmed}).`
+        : 'Certification code cleared.',
+    });
+    await loadDetail(false);
+  };
+
+  const handleExecuteDeleteCandidate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const client = supabase;
+    if (!client || !overview) return;
+
+    if (deleteEmailInput.trim().toLowerCase() !== overview.email.toLowerCase()) {
+      setDeleteError('Email address does not match this candidate.');
+      return;
+    }
+
+    if (hasPaymentsWarning && !deletePaymentsConfirmed) {
+      setDeleteError(
+        'Please confirm that you understand this permanently deletes the fee and payment records.',
+      );
+      return;
+    }
+
+    setDeletingCandidate(true);
+    setDeleteError(null);
+
+    const force = Boolean(hasPaymentsWarning && deletePaymentsConfirmed);
+    const { data, error: fnErr } = await client.functions.invoke(
+      'admin-delete',
+      {
+        body: {
+          target: 'candidate',
+          id: candidateId,
+          confirm: deleteEmailInput.trim(),
+          force,
+        },
+      },
+    );
+
+    if (fnErr) {
+      const parsed = await parseFunctionsError(fnErr);
+      setDeletingCandidate(false);
+      if (parsed.error === 'has_payments') {
+        setHasPaymentsWarning(parsed.message);
+      } else {
+        setDeleteError(parsed.message);
+      }
+      return;
+    }
+
+    setDeletingCandidate(false);
+    setDeleteModalOpen(false);
+    const successText =
+      (data as { message?: string } | null)?.message ||
+      `Candidate ${overview.full_name} permanently deleted.`;
+    if (onDeleted) {
+      onDeleted(successText);
+    } else {
+      onBack();
+    }
   };
 
   const handleApproveDoc = async (doc: CandidateDocument) => {
@@ -489,7 +625,7 @@ export function CandidateDetailView({
             </div>
 
             <div className="min-w-0">
-              <div className="flex items-center gap-2.5 text-xs">
+              <div className="flex flex-wrap items-center gap-2.5 text-xs">
                 <span className="font-mono font-semibold text-blue-700 tabular-nums">
                   {overview.candidate_code}
                 </span>
@@ -503,6 +639,19 @@ export function CandidateDetailView({
                 >
                   {formatCandidateStatusLabel(currentStatus)}
                 </span>
+                {(overview.certification_code ||
+                  candidateRecord?.certification_code) && (
+                  <>
+                    <span className="text-slate-300" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-mono text-[11px] font-semibold tabular-nums">
+                      <Award className="w-3 h-3 text-blue-600" />
+                      {overview.certification_code ||
+                        candidateRecord?.certification_code}
+                    </span>
+                  </>
+                )}
               </div>
 
               <h1 className="mt-1.5 text-2xl font-semibold text-slate-900 tracking-tight">
@@ -616,6 +765,57 @@ export function CandidateDetailView({
             </button>
           </div>
         </div>
+
+        {currentStatus === 'certified' && (
+          <form
+            onSubmit={handleSaveCertCode}
+            className="p-4 bg-blue-50/60 border border-blue-200 rounded-xl space-y-2.5"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+              <div className="flex-1">
+                <label
+                  htmlFor="candidate-cert-code-input"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  Certification code (optional)
+                </label>
+                <input
+                  id="candidate-cert-code-input"
+                  type="text"
+                  minLength={2}
+                  maxLength={100}
+                  placeholder="Enter certification code (2 to 100 characters)…"
+                  value={certCode}
+                  disabled={savingCertCode}
+                  onChange={(e) => {
+                    setCertCode(e.target.value);
+                    if (certFeedback) setCertFeedback(null);
+                  }}
+                  className="w-full px-3.5 py-2 text-sm font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={savingCertCode}
+                className="px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
+              >
+                {savingCertCode ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            {certFeedback && (
+              <p
+                role={certFeedback.type === 'error' ? 'alert' : 'status'}
+                className={`text-xs font-medium ${
+                  certFeedback.type === 'error'
+                    ? 'text-red-700'
+                    : 'text-emerald-700'
+                }`}
+              >
+                {certFeedback.message}
+              </p>
+            )}
+          </form>
+        )}
 
         {statusFeedback && (
           <div
@@ -1610,6 +1810,141 @@ export function CandidateDetailView({
         onClose={() => setConfirmChangeCounsellorOpen(false)}
         onConfirm={() => void executeChangeCounsellor()}
       />
+
+      {/* Danger Zone */}
+      <section
+        aria-labelledby="candidate-danger-zone-heading"
+        className="p-6 bg-red-50/40 border border-red-200 rounded-xl space-y-3"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h2
+              id="candidate-danger-zone-heading"
+              className="text-base font-semibold text-red-900 flex items-center gap-2"
+            >
+              <AlertTriangle className="w-4 h-4 text-red-600" />
+              Danger zone
+            </h2>
+            <p className="text-xs text-red-700">
+              Permanently remove this candidate record, uploaded files, and login account. If they left the program, consider changing their status to Dropped instead.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteEmailInput('');
+              setHasPaymentsWarning(null);
+              setDeletePaymentsConfirmed(false);
+              setDeleteError(null);
+              setDeleteModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors whitespace-nowrap shrink-0 self-start sm:self-auto"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete candidate
+          </button>
+        </div>
+      </section>
+
+      {/* Permanent Candidate Delete Modal */}
+      <Modal
+        open={deleteModalOpen}
+        onClose={() => !deletingCandidate && setDeleteModalOpen(false)}
+        title="Delete candidate permanently?"
+        description="This action cannot be undone."
+        maxWidthClass="max-w-md"
+      >
+        <form onSubmit={handleExecuteDeleteCandidate} className="space-y-4">
+          <div className="p-3.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 space-y-1.5 leading-relaxed">
+            <p>
+              Deleting <strong>{overview.full_name}</strong> ({overview.candidate_code}) permanently removes their candidate record, uploaded documents/CV, and login access.
+            </p>
+            <p>
+              <strong>Tip:</strong> If you only want to deactivate their portal access while preserving records, cancel this dialog and mark the candidate as <strong>Dropped</strong> instead.
+            </p>
+          </div>
+
+          {hasPaymentsWarning && (
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 space-y-2.5">
+              <p className="font-medium">{hasPaymentsWarning}</p>
+              <label className="flex items-start gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={deletePaymentsConfirmed}
+                  disabled={deletingCandidate}
+                  onChange={(e) => {
+                    setDeletePaymentsConfirmed(e.target.checked);
+                    if (deleteError) setDeleteError(null);
+                  }}
+                  className="mt-0.5 h-4 w-4 rounded border-amber-400 text-red-600 focus:ring-red-600"
+                />
+                <span className="font-semibold">
+                  I understand this permanently deletes the fee and payment records
+                </span>
+              </label>
+            </div>
+          )}
+
+          {deleteError && (
+            <div
+              role="alert"
+              className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800"
+            >
+              {deleteError}
+            </div>
+          )}
+
+          <div>
+            <label
+              htmlFor="confirm-delete-candidate-email"
+              className="block text-xs font-medium text-slate-700 mb-1"
+            >
+              Type <span className="font-mono font-semibold">{overview.email}</span> to confirm deletion
+            </label>
+            <input
+              id="confirm-delete-candidate-email"
+              type="email"
+              required
+              autoComplete="off"
+              placeholder={overview.email}
+              value={deleteEmailInput}
+              disabled={deletingCandidate}
+              onChange={(e) => {
+                setDeleteEmailInput(e.target.value);
+                if (deleteError) setDeleteError(null);
+              }}
+              className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-red-600"
+            />
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              disabled={deletingCandidate}
+              onClick={() => setDeleteModalOpen(false)}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={
+                deletingCandidate ||
+                deleteEmailInput.trim().toLowerCase() !==
+                  overview.email.toLowerCase() ||
+                (Boolean(hasPaymentsWarning) && !deletePaymentsConfirmed)
+              }
+              className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50"
+            >
+              {deletingCandidate
+                ? 'Deleting…'
+                : hasPaymentsWarning
+                  ? 'Confirm & Force Delete'
+                  : 'Delete candidate'}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -73,6 +73,15 @@ export function CatalogView({ onNavigatePlacement }: CatalogViewProps) {
   } | null>(null);
   const [deactivating, setDeactivating] = useState(false);
 
+  // Delete confirmation dialog
+  const [deleteTarget, setDeleteTarget] = useState<{
+    table: 'programs' | 'modules';
+    id: string;
+    label: string;
+    entityType: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const loadAll = useCallback(async () => {
     const client = supabase;
     if (!client) return;
@@ -282,6 +291,33 @@ export function CatalogView({ onNavigatePlacement }: CatalogViewProps) {
       .eq('id', id);
     if (err) {
       setActionError(formatDbError(err));
+      return;
+    }
+    await loadAll();
+  };
+
+  const handleConfirmDelete = async () => {
+    const client = supabase;
+    if (!client || !deleteTarget) return;
+    setDeleting(true);
+    setActionError(null);
+
+    const { error: err } = await client
+      .from(deleteTarget.table)
+      .delete()
+      .eq('id', deleteTarget.id);
+
+    setDeleting(false);
+    setDeleteTarget(null);
+
+    if (err) {
+      if ((err as { code?: string }).code === '23503') {
+        setActionError(
+          'This is in use, so it cannot be deleted. Deactivate it instead.',
+        );
+      } else {
+        setActionError(formatDbError(err));
+      }
       return;
     }
     await loadAll();
@@ -519,6 +555,21 @@ export function CatalogView({ onNavigatePlacement }: CatalogViewProps) {
                                   Activate
                                 </button>
                               )}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDeleteTarget({
+                                    table: 'programs',
+                                    id: program.id,
+                                    label: program.name,
+                                    entityType: 'program',
+                                  })
+                                }
+                                aria-label={`Delete program ${program.name}`}
+                                className="text-xs font-medium text-red-700 hover:text-red-900 whitespace-nowrap"
+                              >
+                                Delete
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -727,6 +778,21 @@ export function CatalogView({ onNavigatePlacement }: CatalogViewProps) {
                                   Activate
                                 </button>
                               )}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDeleteTarget({
+                                    table: 'modules',
+                                    id: mod.id,
+                                    label: `${mod.code} (${mod.name})`,
+                                    entityType: 'module',
+                                  })
+                                }
+                                aria-label={`Delete module ${mod.code}`}
+                                className="text-xs font-medium text-red-700 hover:text-red-900 whitespace-nowrap"
+                              >
+                                Delete
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -895,6 +961,17 @@ export function CatalogView({ onNavigatePlacement }: CatalogViewProps) {
         title="Confirm Deactivation"
         message={`Deactivating "${confirmTarget?.label}" will mark this ${confirmTarget?.entityType} inactive for new selections. Existing linked records will not be altered.`}
         confirmLabel="Deactivate"
+        tone="danger"
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => !deleting && setDeleteTarget(null)}
+        onConfirm={() => void handleConfirmDelete()}
+        loading={deleting}
+        title={`Delete ${deleteTarget?.entityType === 'module' ? 'Module' : 'Program'}?`}
+        message={`Are you sure you want to permanently delete "${deleteTarget?.label}"? This action cannot be undone.`}
+        confirmLabel="Delete"
         tone="danger"
       />
     </div>

@@ -13,11 +13,14 @@ import type {
   CandidateCv,
   CandidateEducation,
   CandidateWork,
+  EducationOption,
+  EducationOptionCategory,
   WorkTypeValue,
 } from '../../types/database';
 import {
   CANDIDATE_DOCS_BUCKET,
   formatDbError,
+  generateEducationYears,
   validateAndBuildCvUpload,
   validateAndBuildEducationPayload,
   validateAndBuildWorkPayload,
@@ -90,6 +93,157 @@ function NotApplicableSwitch({
       </div>
       {helperText && (
         <span className="text-[11px] text-slate-400">{helperText}</span>
+      )}
+    </div>
+  );
+}
+
+function EducationYearSelect({
+  id,
+  value,
+  maxYear,
+  disabled = false,
+  onChange,
+  className,
+}: {
+  id: string;
+  value: string;
+  maxYear: number;
+  disabled?: boolean;
+  onChange: (val: string) => void;
+  className: string;
+}) {
+  const years = React.useMemo(() => {
+    const list = generateEducationYears(maxYear, 1990);
+    const num = Number(value);
+    if (value && !list.includes(num) && num >= 1950 && num <= maxYear) {
+      return [num, ...list].sort((a, b) => b - a);
+    }
+    return list;
+  }, [maxYear, value]);
+
+  return (
+    <select
+      id={id}
+      disabled={disabled}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={className}
+    >
+      <option value="">Select year…</option>
+      {years.map((y) => (
+        <option key={y} value={String(y)}>
+          {y}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function EducationOptionDropdown({
+  id,
+  label,
+  category,
+  options,
+  value,
+  disabled = false,
+  onChange,
+  className,
+}: {
+  id: string;
+  label: string;
+  category: EducationOptionCategory;
+  options: EducationOption[];
+  value: string;
+  disabled?: boolean;
+  onChange: (val: string) => void;
+  className: string;
+}) {
+  const categoryOptions = React.useMemo(
+    () => options.filter((o) => o.category === category && o.active),
+    [options, category],
+  );
+
+  const matched = categoryOptions.some(
+    (o) => o.value.trim().toLowerCase() === (value || '').trim().toLowerCase(),
+  );
+
+  const [isOther, setIsOther] = useState(
+    () => Boolean(value && value.trim() && !matched),
+  );
+  const [otherText, setOtherText] = useState(() => (matched ? '' : value || ''));
+
+  useEffect(() => {
+    if (disabled) {
+      setIsOther(false);
+      setOtherText('');
+      return;
+    }
+    const isMatch = categoryOptions.some(
+      (o) => o.value.trim().toLowerCase() === (value || '').trim().toLowerCase(),
+    );
+    if (value && value.trim() && !isMatch) {
+      setIsOther(true);
+      setOtherText(value);
+    } else if (isMatch) {
+      setIsOther(false);
+      setOtherText('');
+    }
+  }, [value, categoryOptions, disabled]);
+
+  const selectValue = isOther ? '__OTHER__' : matched ? value : '';
+
+  return (
+    <div className="space-y-2">
+      <select
+        id={id}
+        disabled={disabled}
+        value={selectValue}
+        onChange={(e) => {
+          const val = e.target.value;
+          if (val === '__OTHER__') {
+            setIsOther(true);
+            onChange(otherText);
+          } else {
+            setIsOther(false);
+            setOtherText('');
+            onChange(val);
+          }
+        }}
+        className={className}
+      >
+        <option value="">Select {label.toLowerCase()}…</option>
+        {categoryOptions.map((opt) => (
+          <option key={opt.id} value={opt.value}>
+            {opt.value}
+          </option>
+        ))}
+        <option value="__OTHER__">Other</option>
+      </select>
+
+      {isOther && !disabled && (
+        <div>
+          <label
+            htmlFor={`${id}-other-text`}
+            className="block text-[11px] font-medium text-slate-500 mb-1"
+          >
+            Specify {label.toLowerCase()} (2 to 120 characters)
+          </label>
+          <input
+            type="text"
+            id={`${id}-other-text`}
+            placeholder={`Type custom ${label.toLowerCase()}…`}
+            minLength={2}
+            maxLength={120}
+            value={otherText}
+            onChange={(e) => {
+              const txt = e.target.value;
+              setOtherText(txt);
+              onChange(txt);
+            }}
+            className={className}
+          />
+        </div>
       )}
     </div>
   );
@@ -176,9 +330,31 @@ export function CandidateEducationCard({
   const [form, setForm] = useState<EducationFormInput>(() =>
     buildInitialEducationForm(education),
   );
+  const [eduOptions, setEduOptions] = useState<EducationOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const fetchEduOptions = async () => {
+      const client = supabase;
+      if (!client) return;
+      const { data } = await client
+        .from('education_options')
+        .select('id, category, value, sort_order, active')
+        .eq('active', true)
+        .order('sort_order', { ascending: true })
+        .order('value', { ascending: true });
+      if (active && data) {
+        setEduOptions(data as EducationOption[]);
+      }
+    };
+    void fetchEduOptions();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     setForm(buildInitialEducationForm(education));
@@ -316,16 +492,12 @@ export function CandidateEducationCard({
               >
                 Passing year
               </label>
-              <input
+              <EducationYearSelect
                 id="edu-ssc-year"
-                type="number"
-                min={1980}
-                max={maxYear}
-                step={1}
-                placeholder="e.g. 2016"
-                value={form.ssc_year}
-                onChange={(e) => {
-                  setForm((p) => ({ ...p, ssc_year: e.target.value }));
+                value={String(form.ssc_year ?? '')}
+                maxYear={maxYear}
+                onChange={(val) => {
+                  setForm((p) => ({ ...p, ssc_year: val }));
                   if (error) setError(null);
                 }}
                 className={inputClass}
@@ -383,17 +555,13 @@ export function CandidateEducationCard({
               >
                 Passing year
               </label>
-              <input
+              <EducationYearSelect
                 id="edu-hsc-year"
-                type="number"
-                min={1980}
-                max={maxYear}
-                step={1}
+                value={String(form.hsc_year ?? '')}
+                maxYear={maxYear}
                 disabled={form.hsc_na}
-                placeholder="e.g. 2018"
-                value={form.hsc_year}
-                onChange={(e) => {
-                  setForm((p) => ({ ...p, hsc_year: e.target.value }));
+                onChange={(val) => {
+                  setForm((p) => ({ ...p, hsc_year: val }));
                   if (error) setError(null);
                 }}
                 className={inputClass}
@@ -446,14 +614,15 @@ export function CandidateEducationCard({
               >
                 Stream
               </label>
-              <input
+              <EducationOptionDropdown
                 id="edu-diploma-stream"
-                type="text"
-                disabled={form.diploma_na}
-                placeholder="e.g. Mechanical Engineering"
+                label="Stream"
+                category="diploma_stream"
+                options={eduOptions}
                 value={form.diploma_stream}
-                onChange={(e) => {
-                  setForm((p) => ({ ...p, diploma_stream: e.target.value }));
+                disabled={form.diploma_na}
+                onChange={(val) => {
+                  setForm((p) => ({ ...p, diploma_stream: val }));
                   if (error) setError(null);
                 }}
                 className={inputClass}
@@ -466,17 +635,13 @@ export function CandidateEducationCard({
               >
                 Passing year
               </label>
-              <input
+              <EducationYearSelect
                 id="edu-diploma-year"
-                type="number"
-                min={1980}
-                max={maxYear}
-                step={1}
+                value={String(form.diploma_year ?? '')}
+                maxYear={maxYear}
                 disabled={form.diploma_na}
-                placeholder="e.g. 2019"
-                value={form.diploma_year}
-                onChange={(e) => {
-                  setForm((p) => ({ ...p, diploma_year: e.target.value }));
+                onChange={(val) => {
+                  setForm((p) => ({ ...p, diploma_year: val }));
                   if (error) setError(null);
                 }}
                 className={inputClass}
@@ -529,16 +694,17 @@ export function CandidateEducationCard({
               >
                 Stream
               </label>
-              <input
+              <EducationOptionDropdown
                 id="edu-grad-stream"
-                type="text"
-                disabled={form.graduation_na}
-                placeholder="e.g. Computer Science"
+                label="Stream"
+                category="graduation_stream"
+                options={eduOptions}
                 value={form.graduation_stream}
-                onChange={(e) => {
+                disabled={form.graduation_na}
+                onChange={(val) => {
                   setForm((p) => ({
                     ...p,
-                    graduation_stream: e.target.value,
+                    graduation_stream: val,
                   }));
                   if (error) setError(null);
                 }}
@@ -552,16 +718,17 @@ export function CandidateEducationCard({
               >
                 Degree
               </label>
-              <input
+              <EducationOptionDropdown
                 id="edu-grad-degree"
-                type="text"
-                disabled={form.graduation_na}
-                placeholder="e.g. B.Tech / B.Com"
+                label="Degree"
+                category="graduation_degree"
+                options={eduOptions}
                 value={form.graduation_degree}
-                onChange={(e) => {
+                disabled={form.graduation_na}
+                onChange={(val) => {
                   setForm((p) => ({
                     ...p,
-                    graduation_degree: e.target.value,
+                    graduation_degree: val,
                   }));
                   if (error) setError(null);
                 }}
@@ -575,17 +742,13 @@ export function CandidateEducationCard({
               >
                 Passing year
               </label>
-              <input
+              <EducationYearSelect
                 id="edu-grad-year"
-                type="number"
-                min={1980}
-                max={maxYear}
-                step={1}
+                value={String(form.graduation_year ?? '')}
+                maxYear={maxYear}
                 disabled={form.graduation_na}
-                placeholder="e.g. 2022"
-                value={form.graduation_year}
-                onChange={(e) => {
-                  setForm((p) => ({ ...p, graduation_year: e.target.value }));
+                onChange={(val) => {
+                  setForm((p) => ({ ...p, graduation_year: val }));
                   if (error) setError(null);
                 }}
                 className={inputClass}
@@ -624,16 +787,17 @@ export function CandidateEducationCard({
               >
                 University
               </label>
-              <input
+              <EducationOptionDropdown
                 id="edu-grad-uni"
-                type="text"
-                disabled={form.graduation_na}
-                placeholder="e.g. Savitribai Phule Pune University"
+                label="University"
+                category="graduation_university"
+                options={eduOptions}
                 value={form.graduation_university}
-                onChange={(e) => {
+                disabled={form.graduation_na}
+                onChange={(val) => {
                   setForm((p) => ({
                     ...p,
-                    graduation_university: e.target.value,
+                    graduation_university: val,
                   }));
                   if (error) setError(null);
                 }}
@@ -664,14 +828,15 @@ export function CandidateEducationCard({
               >
                 Stream
               </label>
-              <input
+              <EducationOptionDropdown
                 id="edu-pg-stream"
-                type="text"
-                disabled={form.pg_na}
-                placeholder="e.g. Finance / Analytics"
+                label="Stream"
+                category="pg_stream"
+                options={eduOptions}
                 value={form.pg_stream}
-                onChange={(e) => {
-                  setForm((p) => ({ ...p, pg_stream: e.target.value }));
+                disabled={form.pg_na}
+                onChange={(val) => {
+                  setForm((p) => ({ ...p, pg_stream: val }));
                   if (error) setError(null);
                 }}
                 className={inputClass}
@@ -684,14 +849,15 @@ export function CandidateEducationCard({
               >
                 Degree
               </label>
-              <input
+              <EducationOptionDropdown
                 id="edu-pg-degree"
-                type="text"
-                disabled={form.pg_na}
-                placeholder="e.g. MBA / MCA / M.Tech"
+                label="Degree"
+                category="pg_degree"
+                options={eduOptions}
                 value={form.pg_degree}
-                onChange={(e) => {
-                  setForm((p) => ({ ...p, pg_degree: e.target.value }));
+                disabled={form.pg_na}
+                onChange={(val) => {
+                  setForm((p) => ({ ...p, pg_degree: val }));
                   if (error) setError(null);
                 }}
                 className={inputClass}
@@ -704,17 +870,13 @@ export function CandidateEducationCard({
               >
                 Passing year
               </label>
-              <input
+              <EducationYearSelect
                 id="edu-pg-year"
-                type="number"
-                min={1980}
-                max={maxYear}
-                step={1}
+                value={String(form.pg_year ?? '')}
+                maxYear={maxYear}
                 disabled={form.pg_na}
-                placeholder="e.g. 2024"
-                value={form.pg_year}
-                onChange={(e) => {
-                  setForm((p) => ({ ...p, pg_year: e.target.value }));
+                onChange={(val) => {
+                  setForm((p) => ({ ...p, pg_year: val }));
                   if (error) setError(null);
                 }}
                 className={inputClass}
@@ -750,14 +912,15 @@ export function CandidateEducationCard({
               >
                 University
               </label>
-              <input
+              <EducationOptionDropdown
                 id="edu-pg-uni"
-                type="text"
-                disabled={form.pg_na}
-                placeholder="e.g. Mumbai University"
+                label="University"
+                category="pg_university"
+                options={eduOptions}
                 value={form.pg_university}
-                onChange={(e) => {
-                  setForm((p) => ({ ...p, pg_university: e.target.value }));
+                disabled={form.pg_na}
+                onChange={(val) => {
+                  setForm((p) => ({ ...p, pg_university: val }));
                   if (error) setError(null);
                 }}
                 className={inputClass}

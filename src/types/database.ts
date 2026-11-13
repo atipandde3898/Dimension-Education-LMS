@@ -84,6 +84,7 @@ export interface Candidate {
   batch_id: string | null;
   counsellor_id: string | null;
   status: CandidateStatusValue;
+  certification_code?: string | null;
 }
 
 export interface CandidateOverview {
@@ -93,6 +94,7 @@ export interface CandidateOverview {
   email: string;
   phone: string | null;
   status: CandidateStatusValue;
+  certification_code?: string | null;
   program: string | null;
   module: string | null;
   batch_code: string | null;
@@ -456,6 +458,7 @@ export interface CandidateProfileFull {
   cv_path: string | null;
   cv_file_name: string | null;
   photo_path: string | null;
+  certification_code?: string | null;
 }
 
 export interface Opportunity {
@@ -508,12 +511,32 @@ export type OpportunityResponseState =
   | 'no_response';
 
 export type OpportunityPipelineStage =
+  | 'profile_shared'
   | 'shortlisted'
   | 'interview'
+  | 'on_hold'
+  | 'no_show'
   | 'selected'
   | 'offer_made'
   | 'joined'
   | 'rejected';
+
+export type EducationOptionCategory =
+  | 'diploma_stream'
+  | 'graduation_stream'
+  | 'graduation_degree'
+  | 'graduation_university'
+  | 'pg_stream'
+  | 'pg_degree'
+  | 'pg_university';
+
+export interface EducationOption {
+  id: string;
+  category: EducationOptionCategory;
+  value: string;
+  sort_order: number;
+  active: boolean;
+}
 
 export interface OpportunityResponse {
   recipient_id: string;

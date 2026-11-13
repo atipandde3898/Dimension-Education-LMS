@@ -73,6 +73,8 @@ const APPLICATION_STATUS_BADGE_CLASSES: Record<
   teal: 'bg-[#E6F6F6] text-[#0B7C7C] border-[#0FA3A3]/40 dark:bg-[#12294A] dark:text-[#2CC4C4] dark:border-[#1E436E]',
   dark_green:
     'bg-[#14532D] text-white border-[#14532D] dark:bg-[#1E6B43] dark:text-[#E7F6EF] dark:border-[#2A8A58]',
+  amber:
+    'bg-[#FDF4E0] text-[#C98A0B] border-[#F6DEAA] dark:bg-[#2A2312] dark:text-[#E8AF37] dark:border-[#4D3D17]',
   grey: 'bg-[#F5F8FB] text-[#5B6B7F] border-[#E3E9F0]',
 };
 

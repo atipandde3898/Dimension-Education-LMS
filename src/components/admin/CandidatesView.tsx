@@ -48,9 +48,15 @@ const STATUS_TEXT_CLASS: Record<CandidateOverview['status'], string> = {
 
 interface CandidatesViewProps {
   onSelectCandidate: (candidateId: string) => void;
+  deletedMessage?: string | null;
+  onDismissDeletedMessage?: () => void;
 }
 
-export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
+export function CandidatesView({
+  onSelectCandidate,
+  deletedMessage,
+  onDismissDeletedMessage,
+}: CandidatesViewProps) {
   const [candidates, setCandidates] = useState<CandidateOverview[]>([]);
   const [onboardingMap, setOnboardingMap] = useState<
     Record<string, OnboardingStatus>
@@ -94,7 +100,7 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
       supabase
         .from('v_candidate_overview')
         .select(
-          'candidate_id, candidate_code, full_name, email, phone, status, program, module, batch_code, batch_mode, counsellor, net_fee, paid, pending, handed_over, handover_date, placement_member',
+          'candidate_id, candidate_code, full_name, email, phone, status, program, module, batch_code, batch_mode, counsellor, certification_code, net_fee, paid, pending, handed_over, handover_date, placement_member',
         ),
       supabase
         .from('profiles')
@@ -218,6 +224,24 @@ export function CandidatesView({ onSelectCandidate }: CandidatesViewProps) {
           Add Candidate
         </button>
       </div>
+
+      {deletedMessage && (
+        <div
+          role="status"
+          className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center justify-between gap-2"
+        >
+          <span>{deletedMessage}</span>
+          {onDismissDeletedMessage && (
+            <button
+              type="button"
+              onClick={onDismissDeletedMessage}
+              className="text-xs font-medium underline opacity-80 hover:opacity-100"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+      )}
 
       {createdBanner && (
         <GeneratedCodeBanner
